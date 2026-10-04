@@ -1,17 +1,16 @@
 'use client';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
-import { DockExtension } from '@/components/shell/ScreenLayout';
 import { useI18n } from '@/hooks/i18n';
 import { useContainer } from '@/hooks/services';
 import { useSession } from '@/hooks/session';
 import { VoiceContext, VoiceFocusContext, type VoiceApi } from '@/hooks/voice';
 import { audioSupported } from '@/services/voice/audio/types';
 import type { VoiceSession, VoiceState } from '@/services/voice/session';
-import { voiceFingerprint } from './screen-signal';
+import { screenSignal, voiceFingerprint } from './screen-signal';
 import { useActionBus } from './useActionBus';
 import { VoiceAnnouncer } from './VoiceAnnouncer';
 import { ScreenSync } from './useScreenSync';
-import { VoiceDock } from './VoiceDock';
+import { VoiceFloat } from './VoiceFloat';
 
 /** Voice mode is on from start() until the trainer stops it or the session ends itself (an error stays on, to explain). */
 const isOn = (state: VoiceState | null): state is VoiceState => state !== null && state.status !== 'idle' && state.status !== 'ended';
@@ -59,9 +58,14 @@ export function VoiceProvider({ children }: { readonly children: ReactNode }) {
   const available = planned && (simulation.get().voice === 'scripted' || audioSupported());
 
   // Synchronous from the click: the session creates and resumes its AudioContexts before anything is awaited.
+  // Voice can start on any screen (D-133): the session hears which one before its kickoff reads the flow (the
+  // executor's flow starts at Home, so Home itself needs no signal).
   const start = useCallback(() => {
     const started = services.voice.start(ctx, language);
-    if (started) setEntry({ session: started, fingerprint: voiceFingerprint(ctx) });
+    if (!started) return;
+    setEntry({ session: started, fingerprint: voiceFingerprint(ctx) });
+    const signal = screenSignal(window.location.pathname, new URLSearchParams(window.location.search));
+    if (signal.kind !== 'home') started.onScreen(signal);
   }, [services, ctx, language]);
 
   const api = useMemo<VoiceApi>(
@@ -91,18 +95,16 @@ export function VoiceProvider({ children }: { readonly children: ReactNode }) {
   }, [session]);
 
   const on = state !== null;
-  const dock = useMemo(() => (on ? <VoiceDock /> : null), [on]);
 
   return (
     <VoiceContext.Provider value={api}>
       <VoiceFocusContext.Provider value={state?.focus ?? null}>
-        <DockExtension.Provider value={dock}>
-          <Suspense fallback={null}>
-            <ScreenSync session={session} />
-          </Suspense>
-          <VoiceAnnouncer on={on} error={state?.error ?? null} />
-          {children}
-        </DockExtension.Provider>
+        <Suspense fallback={null}>
+          <ScreenSync session={session} />
+        </Suspense>
+        <VoiceAnnouncer on={on} error={state?.error ?? null} />
+        {children}
+        <VoiceFloat />
       </VoiceFocusContext.Provider>
     </VoiceContext.Provider>
   );

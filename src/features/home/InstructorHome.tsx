@@ -8,7 +8,6 @@ import { toLocalDate } from '@/lib/time';
 import { AnnouncementBanner } from '../announcements/AnnouncementBanner';
 import { AttendanceBoard } from '../attendance/AttendanceBoard';
 import { SyncPendingCard } from '../offline/SyncPendingCard';
-import { VoiceModeButton } from '../voice/VoiceModeButton';
 import { Greeting, MyAttendanceCard, SubmittedToday, TradeOverviewCard } from './parts';
 import { roleLine } from './roleLine';
 import styles from './Home.module.css';
@@ -32,14 +31,12 @@ export function InstructorHome() {
         // Open mapping: any trade, then a batch. The trades are right here, one tap from marking.
         return (
           <Section id="today" title={t('home.todays')} subtitle={t('home.chooseTrade')}>
-            <VoiceModeButton />
             <AttendanceBoard />
           </Section>
         );
       case 'timetable':
         return (
           <Section id="today" title={t('home.timetable')}>
-            <VoiceModeButton />
             <AttendanceBoard />
           </Section>
         );
@@ -50,7 +47,6 @@ export function InstructorHome() {
             title={t('home.yourBatches')}
             subtitle={subject ? t('home.subjectSub', { subject: subject.name, count: ctx.access.batchIds.size, trades: ctx.access.tradeIds.length }) : undefined}
           >
-            <VoiceModeButton />
             <AttendanceBoard />
           </Section>
         );

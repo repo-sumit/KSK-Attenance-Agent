@@ -47,6 +47,26 @@ describe('captions', () => {
     expect(captionsAfter(lines, {})).toBe(lines);
   });
 
+  // The live dev caption "…Electrician; Shift Shift 1, Unit 2…" (Task FAB, requirement 8): no chunk is dropped,
+  // replaced or reordered here, whatever the message boundaries.
+  it('keeps every output chunk of a turn, in order, across messages and with the close in the same message', () => {
+    let lines: readonly Caption[] = [];
+    for (const chunk of ['Opening', ' Electrician;', ' Shift', ' 1,', ' Unit', ' 2.']) lines = captionsAfter(lines, { outputText: chunk });
+    expect(lines).toEqual([{ who: 'agent', text: 'Opening Electrician; Shift 1, Unit 2.', final: false }]);
+    lines = captionsAfter([], { outputText: 'Which' });
+    lines = captionsAfter(lines, { outputText: ' batch?', turnComplete: true }); // the last chunk rides with turnComplete
+    expect(lines).toEqual([{ who: 'agent', text: 'Which batch?', final: true }]);
+  });
+
+  it('a chunk that arrives after turnComplete or interrupted is kept (as a new line), never dropped', () => {
+    let lines = captionsAfter([], { outputText: 'Electrician; Shift', turnComplete: true });
+    lines = captionsAfter(lines, { outputText: ' 1, Unit 2' });
+    expect(lines.map((l) => l.text)).toEqual(['Electrician; Shift', '1, Unit 2']);
+    lines = captionsAfter(lines, { interrupted: true });
+    lines = captionsAfter(lines, { outputText: 'Okay' });
+    expect(lines.map((l) => l.text)).toEqual(['Electrician; Shift', '1, Unit 2', 'Okay']);
+  });
+
   it('keeps the newest 14 lines and returns the same array when nothing changes', () => {
     let lines: readonly Caption[] = [];
     for (let i = 0; i < 20; i++) lines = closeCaptions(appendCaption(lines, i % 2 ? 'agent' : 'trainer', `line ${i}`));

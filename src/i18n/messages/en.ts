@@ -740,6 +740,8 @@ export const en = {
     you: "You",
     agent: "Sahayak",
     moreControls: "More voice controls",
+    minimize: "Minimize voice controls",
+    showControls: "Show voice controls",
     status: {
       connecting: "Connecting…",
       listening: "Listening",

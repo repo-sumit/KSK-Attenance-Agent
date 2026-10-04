@@ -1,0 +1,148 @@
+/*
+ * Voice mode's floating element (D-133): the round mic button (an extended pill from 600px), the minimized status
+ * button and the voice card. Fixed at the bottom-right of the screen's content column, just above its footer and
+ * bottom navigation: VoiceFloat measures the screen's dock anchor (DockAnchor) into the --float-* variables; the
+ * defaults below are the viewport's corner, used before a screen has mounted. Above the screens, under menus, sheets,
+ * toasts and the demo panel (--z-voice).
+ */
+.float {
+  --float-left: var(--space-16);
+  --float-right: var(--space-16);
+  --float-bottom: calc(var(--space-16) + env(safe-area-inset-bottom));
+  --float-width: calc(100vw - 2 * var(--space-16));
+  position: fixed;
+  z-index: var(--z-voice);
+  bottom: var(--float-bottom);
+  right: var(--float-right);
+}
+/* The button floats a little above the dock's top, over the scroller's bottom-right corner (screens keep scroll room). */
+.asButton {
+  bottom: calc(var(--float-bottom) + var(--space-8));
+}
+/* Phones: the anchor's slim margin is for the card; the button keeps the DS page margin from the edge. */
+@media (max-width: 599px) {
+  .asButton {
+    right: calc(var(--float-right) + var(--space-8));
+  }
+}
+/* Phones: the card spans the content column; it sits in the band ScreenLayout reserves above the footer. */
+.asCard {
+  left: var(--float-left);
+}
+
+.fab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
+  min-width: var(--cta-height);
+  height: var(--cta-height);
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-interactive-primary);
+  color: var(--color-text-on-brand);
+  box-shadow: var(--shadow-raised);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: background var(--motion-fast) var(--motion-ease);
+}
+.fab > svg {
+  flex: none;
+}
+@media (hover: hover) {
+  .fab:hover:not([aria-disabled='true']):not(.mini) {
+    background: var(--color-interactive-primary-hover);
+  }
+}
+.fab:active:not([aria-disabled='true']):not(.mini) {
+  background: var(--color-interactive-primary-active);
+}
+.fab:focus-visible {
+  outline: var(--border-selected) solid var(--color-border-focus);
+  outline-offset: var(--space-2);
+}
+/* Offline: looks inactive but stays focusable, so the description can say why (voice needs the internet). */
+.fab[aria-disabled='true'] {
+  background: var(--color-interactive-primary-disabled);
+  cursor: not-allowed;
+}
+/* Phones: the label is hidden visually, never removed (it is the button's name). */
+.fabLabel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  font: var(--type-label-large);
+  letter-spacing: var(--ls-label-large);
+}
+
+/* Minimized while voice runs: a white round button whose ring and icon carry the status colour. */
+.mini {
+  background: var(--color-background-surface-raised);
+  border: var(--border-selected) solid var(--mini-ring);
+  color: var(--mini-text);
+  --mini-ring: var(--color-icon-secondary);
+  --mini-text: var(--color-text-secondary);
+}
+.mini[data-tone='success'] {
+  --mini-ring: var(--color-icon-success);
+  --mini-text: var(--color-text-success);
+}
+.mini[data-tone='info'] {
+  --mini-ring: var(--color-icon-brand);
+  --mini-text: var(--color-text-info);
+}
+.mini[data-tone='warning'] {
+  --mini-ring: var(--color-icon-warning);
+  --mini-text: var(--color-text-warning);
+}
+.mini[data-tone='error'] {
+  --mini-ring: var(--color-icon-error);
+  --mini-text: var(--color-text-error);
+}
+.miniIcon {
+  display: inline-flex;
+}
+
+@media (min-width: 600px) {
+  /* The card keeps its own width at the column's right edge. */
+  .asCard {
+    left: auto;
+    width: min(var(--overlay-width-voice), var(--float-width));
+  }
+  /* The idle button becomes an extended pill with its text. */
+  .fab:not(.mini) {
+    padding: 0 var(--space-20);
+  }
+  .fabLabel {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip-path: none;
+  }
+}
+
+/*
+ * Room the screens reserve while the float shows (html[data-voice-float] outranks the :root defaults in tokens.css,
+ * whatever the stylesheet order). The button: scroll room at the bottom of the scroller, so the last row can scroll
+ * clear of it. The card: a band of its height above the footer and bottom navigation (ScreenLayout's dock anchor),
+ * so it never covers a row or the Submit button.
+ */
+@media all {
+  :global(html[data-voice-float='button']) {
+    --voice-reserve-block-end: calc(var(--voice-float-height) + var(--space-16));
+  }
+  :global(html[data-voice-float='card']) {
+    --voice-space: var(--voice-float-height);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fab {
+    transition: none;
+  }
+}

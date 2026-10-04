@@ -56,6 +56,8 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   scroll-padding-block: var(--space-8);
+  /* A row scrolled into view (the voice agent's current student) stops above the floating voice button. */
+  scroll-padding-block-end: calc(var(--space-8) + var(--voice-reserve-block-end));
   display: flex;
   flex-direction: column;
 }
@@ -72,16 +74,16 @@
 }
 .pad-page {
   gap: var(--space-24);
-  padding: var(--space-16) var(--gutter-inline) calc(var(--space-24) + var(--demo-reserve-block-end));
+  padding: var(--space-16) var(--gutter-inline) calc(var(--space-24) + var(--demo-reserve-block-end) + var(--voice-reserve-block-end));
 }
 .pad-center {
   gap: var(--space-24);
-  padding: var(--space-48) var(--gutter-inline) calc(var(--space-24) + var(--demo-reserve-block-end));
+  padding: var(--space-48) var(--gutter-inline) calc(var(--space-24) + var(--demo-reserve-block-end) + var(--voice-reserve-block-end));
   align-items: center;
   text-align: center;
 }
 .pad-none {
-  padding: 0 var(--gutter-flush) var(--demo-reserve-block-end);
+  padding: 0 var(--gutter-flush) calc(var(--demo-reserve-block-end) + var(--voice-reserve-block-end));
 }
 .headerless {
   padding-top: calc(var(--space-16) + env(safe-area-inset-top) + var(--demo-reserve-block));
@@ -92,6 +94,20 @@
 .dock {
   flex: none;
   padding-bottom: env(safe-area-inset-bottom);
+}
+/*
+ * The floating voice controls' anchor (DockAnchor, D-133): on the content column, at the top of the dock. Its
+ * height is the band the voice card sits in while it is open (0 otherwise), so the card never covers a row.
+ */
+.floatAnchor {
+  height: var(--voice-space);
+  margin: 0 var(--gutter-inline);
+}
+/* Phones: the voice card spans the screen with a slim margin (a floating sheet), so its row keeps its width. */
+@media (max-width: 599px) {
+  .floatAnchor {
+    margin: 0 var(--space-8);
+  }
 }
 .footer {
   display: flex;
@@ -129,7 +145,7 @@
   }
   .pad-page {
     padding-top: var(--space-24);
-    padding-bottom: calc(var(--space-32) + var(--demo-reserve-block-end));
+    padding-bottom: calc(var(--space-32) + var(--demo-reserve-block-end) + var(--voice-reserve-block-end));
   }
   /*
    * Card screens (login, one-question steps): a centred form-width card on the
@@ -149,11 +165,17 @@
   .inlineFooter .footer {
     border-top: none;
   }
+  /* The footer follows the content here: the voice card floats at the viewport's corner instead of in a band. */
+  .inlineFooter {
+    --voice-space: 0px;
+  }
   .card {
     /* Inside the card the DS page margins would double up: one comfortable inset instead. */
     --gutter-inline: var(--space-32);
-    /* The floating demo trigger sits outside the card. */
+    /* The floating demo trigger and the voice controls sit outside the card. */
     --demo-reserve-block-end: 0px;
+    --voice-reserve-block-end: 0px;
+    --voice-space: 0px;
     height: auto;
     max-height: calc(100dvh - 2 * var(--space-48));
     max-width: var(--container-form);

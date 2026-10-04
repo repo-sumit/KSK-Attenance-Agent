@@ -13,19 +13,21 @@ describe('fetchLiveToken', () => {
     await fetchLiveToken(fake);
     expect(fake).toHaveBeenCalledWith('/api/voice/token', { method: 'POST', credentials: 'same-origin', cache: 'no-store' });
   });
+  // `detail.why` names the failed step for the debug log (ids and codes only, never the body).
   it.each([
-    [403, 'origin'],
-    [429, 'rate_limited'],
-    [503, 'unavailable'],
-    [500, 'unavailable'],
-  ])('maps %s to %s', async (status, error) => {
-    expect(await fetchLiveToken(reply(status, { error: 'x' }))).toEqual({ ok: false, error });
+    [403, 'origin', 'origin'],
+    [429, 'rate_limited', 'rate_limited'],
+    [503, 'unavailable', 'http 5xx'],
+    [500, 'unavailable', 'http 5xx'],
+    [404, 'unavailable', 'http 4xx'],
+  ])('maps %s to %s', async (status, error, why) => {
+    expect(await fetchLiveToken(reply(status, { error: 'x' }))).toEqual({ ok: false, error, detail: { why } });
   });
   it('maps a thrown fetch to network', async () => {
-    expect(await fetchLiveToken(vi.fn(async () => { throw new TypeError('Failed to fetch'); }))).toEqual({ ok: false, error: 'network' });
+    expect(await fetchLiveToken(vi.fn(async () => { throw new TypeError('Failed to fetch'); }))).toEqual({ ok: false, error: 'network', detail: { why: 'network' } });
   });
   it('treats a 200 with a malformed body as unavailable', async () => {
-    expect(await fetchLiveToken(reply(200, { token: 'x' }))).toEqual({ ok: false, error: 'unavailable' });
-    expect(await fetchLiveToken(vi.fn(async () => new Response('<html>', { status: 200 })))).toEqual({ ok: false, error: 'unavailable' });
+    expect(await fetchLiveToken(reply(200, { token: 'x' }))).toEqual({ ok: false, error: 'unavailable', detail: { why: 'malformed' } });
+    expect(await fetchLiveToken(vi.fn(async () => new Response('<html>', { status: 200 })))).toEqual({ ok: false, error: 'unavailable', detail: { why: 'malformed' } });
   });
 });

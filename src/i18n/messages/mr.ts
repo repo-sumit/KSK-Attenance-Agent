@@ -559,6 +559,8 @@ export const mr: Translation<EnglishMessages> = {
     you: 'तुम्ही',
     agent: 'सहायक',
     moreControls: 'आणखी व्हॉइस पर्याय',
+    minimize: 'व्हॉइस पर्याय लहान करा',
+    showControls: 'व्हॉइस पर्याय दाखवा',
     status: {
       connecting: 'जोडत आहे…',
       listening: 'ऐकत आहे',

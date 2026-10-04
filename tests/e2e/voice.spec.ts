@@ -1,5 +1,5 @@
 // tests/e2e/voice.spec.ts
-import { demo, expect, expectNoOverflow, openProfileMenu, preset, test } from './fixtures';
+import { demo, expect, expectNoOverflow, nav, openProfileMenu, preset, test } from './fixtures';
 
 const voice = (page: import('@playwright/test').Page, script: string) => page.evaluate(`window.__kskDemo.voice.${script}`);
 
@@ -193,7 +193,7 @@ test.describe('voice mode (scripted model)', () => {
     });
   });
 
-  test('Marathi at 320×568: the compact dock stays one row and one line (≤ 88 px) with push-to-talk on and with minutes left', async ({ page }) => {
+  test('Marathi at 320×568: the compact voice card stays one row and one line (≤ 88 px) with push-to-talk on and with minutes left', async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 568 });
     await preset(page, 'open');
     await openProfileMenu(page).then((menu) => menu.getByRole('radio', { name: 'मराठी' }).click());
@@ -224,7 +224,7 @@ test.describe('voice mode (scripted model)', () => {
   });
 
   for (const width of [320, 1280]) {
-    test(`the dock fits at ${width}px`, async ({ page }) => {
+    test(`the voice card fits at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 800 });
       await preset(page, 'open');
       await page.getByRole('button', { name: 'Voice mode' }).click();
@@ -232,4 +232,87 @@ test.describe('voice mode (scripted model)', () => {
       await expectNoOverflow(page);
     });
   }
+});
+
+test.describe('the floating voice button (D-133)', () => {
+  const fab = (page: import('@playwright/test').Page) => page.getByRole('button', { name: 'Voice mode' });
+  const toRoster = async (page: import('@playwright/test').Page) => {
+    await page.getByRole('region', { name: 'Today’s attendance' }).getByRole('link', { name: /Electrician/ }).click();
+    await page.getByRole('link', { name: /Shift 1 · Unit 2/ }).click();
+    await page.waitForURL(/\/attendance\/mark/);
+  };
+
+  test('sits at the bottom-right on Home, Reports and the roster for an instructor', async ({ page }) => {
+    await preset(page, 'open');
+    const corner = async (where: string) => {
+      await expect(fab(page), where).toBeVisible();
+      const viewport = page.viewportSize()!;
+      const box = (await fab(page).boundingBox())!;
+      expect(viewport.width - (box.x + box.width), `${where}: right margin`).toBeLessThanOrEqual(24);
+      expect(box.y, `${where}: bottom half`).toBeGreaterThan(viewport.height / 2);
+    };
+    await corner('Home');
+    await nav(page, 'Reports').click();
+    await page.waitForURL(/\/reports/);
+    await corner('Reports');
+    await nav(page, 'Home').click();
+    await page.waitForURL(/\/home$/);
+    await toRoster(page);
+    await corner('roster');
+  });
+
+  test('is not there for the principal, nor on the login screen', async ({ page }) => {
+    await preset(page, 'principal');
+    await expect(page.locator('main#main')).toBeVisible();
+    await expect(fab(page)).toHaveCount(0);
+    await page.goto('/login');
+    await expect(page.locator('main#main')).toBeVisible();
+    await expect(fab(page)).toHaveCount(0);
+  });
+
+  test('at 320×568 on the roster: the last row scrolls clear of the button, and the open card covers no row and not Review & Submit', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 568 });
+    await preset(page, 'open');
+    await toRoster(page);
+    const main = page.locator('main#main');
+    // The button overlays the list's bottom-right corner: the list keeps room to scroll its last row above it.
+    await main.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+    await expect
+      .poll(async () => {
+        const row = (await page.locator('[data-student]').last().boundingBox())!;
+        const button = (await fab(page).boundingBox())!;
+        return row.y + row.height <= button.y + 1;
+      })
+      .toBe(true);
+    // The card sits in the band above the footer: below the list, above Review & Submit, one row and one line.
+    await fab(page).click();
+    const card = page.locator('section[data-voice-status]');
+    await expect(card).toBeVisible();
+    await expect
+      .poll(async () => {
+        const c = (await card.boundingBox())!;
+        const m = (await main.boundingBox())!;
+        const cta = (await page.getByRole('button', { name: 'Review & Submit' }).boundingBox())!;
+        return c.y >= m.y + m.height - 1 && c.y + c.height <= cta.y + 1 && c.height <= 88;
+      })
+      .toBe(true);
+    await expectNoOverflow(page);
+  });
+
+  test('minimize keeps voice running behind a round status button, and a tap opens the card again', async ({ page }) => {
+    await preset(page, 'open');
+    await fab(page).click();
+    const card = page.locator('section[data-voice-status="listening"]');
+    await expect(card).toBeVisible();
+    await page.getByRole('button', { name: 'Minimize voice controls' }).click();
+    await expect(card).toHaveCount(0);
+    const mini = page.getByRole('button', { name: 'Listening' });
+    await expect(mini).toBeVisible();
+    // Voice is still on: the agent can still act.
+    await voice(page, `toolCall('select_trade', { trade: 'Electrician' })`);
+    await page.waitForURL(/\/attendance\/trade\?trade=ele/);
+    await expect(page.getByRole('button', { name: 'Listening' })).toBeVisible(); // still minimized after navigating
+    await page.getByRole('button', { name: 'Listening' }).click();
+    await expect(card).toBeVisible();
+  });
 });

@@ -176,17 +176,12 @@ describe('VoiceProvider: the fingerprint stop', () => {
 
 describe('VoiceProvider: announcements and focus when voice ends (m14, C8)', () => {
   let api: VoiceApi;
-  /** A stand-in screen: its main region, and a Stop button that exists only while voice is on (as the dock's does). */
+  /** A stand-in screen: its main region and a row. Stop voice is the provider's own voice card (VoiceFloat, D-133). */
   function Screen() {
     api = useVoice();
     return (
       <main id="main" tabIndex={-1}>
         <button type="button">Row</button>
-        {api.state && (
-          <button type="button" onClick={api.stop}>
-            Stop voice
-          </button>
-        )}
       </main>
     );
   }

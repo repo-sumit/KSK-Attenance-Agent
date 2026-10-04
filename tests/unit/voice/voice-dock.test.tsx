@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { VoiceDock } from '@/features/voice/VoiceDock';
+import { VoiceFloat } from '@/features/voice/VoiceFloat';
 import { I18nProvider } from '@/hooks/i18n';
 import { ServicesProvider } from '@/hooks/services';
 import { VoiceContext, type VoiceApi } from '@/hooks/voice';
@@ -36,7 +36,7 @@ function Harness({ initial, spy }: { readonly initial: VoiceState; readonly spy:
   };
   return (
     <VoiceContext.Provider value={api}>
-      <VoiceDock />
+      <VoiceFloat />
     </VoiceContext.Provider>
   );
 }
@@ -54,7 +54,7 @@ function renderDock(patch: Partial<VoiceState> = {}) {
   return { spy, ...view };
 }
 
-describe('VoiceDock', () => {
+describe('the voice card (VoiceFloat while voice runs)', () => {
   it.each([
     ['connecting', 'Connecting…', 'refresh'],
     ['listening', 'Listening', 'mic'],
@@ -171,7 +171,7 @@ function compactViewport() {
   }));
 }
 
-describe('VoiceDock on a compact screen', () => {
+describe('the voice card on a compact screen', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it('keeps Hold to talk in the closed row after every re-mount while push-to-talk is on', () => {

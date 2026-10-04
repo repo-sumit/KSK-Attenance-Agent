@@ -98,7 +98,7 @@ All pages are static (the one route handler, `POST /api/voice/token`, is dynamic
 
 **Mobile-first is not a fixed mobile viewport (D-045).** Phones are the primary design; from the SwiftChat medium breakpoint (600px) up, the same screens fill the viewport and keep a readable column instead of a 412px phone frame.
 
-- `ScreenLayout` (`src/components/shell`) is every screen's frame: header → connectivity banner → optional fixed `top` → `main` (the only scroller) → dock (toast, footer, bottom nav). Props that matter for layout:
+- `ScreenLayout` (`src/components/shell`) is every screen's frame: header → connectivity banner → optional fixed `top` → `main` (the only scroller) → dock (toast, the floating voice controls' anchor, footer, bottom nav). Props that matter for layout:
   - `width`: the content measure from 600px up — `form` 480px, `reading` 800px (roster, review, records, reports, staff), `wide` 1008px (home, class lists). Phones always use the full width.
   - `card`: from 600px up the whole screen becomes a centred form-width card on the page grey (login steps, face intro, permission primers, result and stand-alone problem screens), with the action directly under the content.
   - `area` + `bottomNav`: which destination the screen belongs to (marked current in both navigations) and whether it is a tab root (bottom nav on phones). Class-marking task screens get their `area` and back target from `useAttendanceRoot()`: Attendance where that tab exists, otherwise Home (D-052).
@@ -188,12 +188,12 @@ flowchart LR
 
 ## Voice mode (D-078 to D-132)
 
-An instructor on the instructor Home taps **Voice mode** and marks a batch by speaking, in English or Marathi (D-080, D-087). The agent follows the configured flow: trade (when the mapping model has one), batch or period, the location and face check, marking (roll call or by exception), review and submit. Taps and voice work on the same draft; the screen follows the conversation; the tap UI is untouched when voice is off, blocked or broken.
+An instructor taps the floating **Voice mode** button (bottom-right on every instructor screen, D-133) and marks a batch by speaking, in English or Marathi (D-080, D-087). The agent follows the configured flow: trade (when the mapping model has one), batch or period, the location and face check, marking (roll call or by exception), review and submit. Taps and voice work on the same draft; the screen follows the conversation; the tap UI is untouched when voice is off, blocked or broken.
 
 ```
 Browser (SwiftChat WebView)                                         Google
 +--------------------------------------------------------------+
-| features/voice: VoiceProvider . VoiceModeButton . VoiceDock  |
+| features/voice: VoiceProvider . VoiceFloat (button + card)   |
 |   useActionBus (router, end) . useScreenSync (route -> flow) |
 |                |                         ^                   |
 | services/voice v                         | UI events         |
@@ -219,7 +219,7 @@ Browser (SwiftChat WebView)                                         Google
 | `src/services/voice` | `tools`, `prompt`, `instructions`, `app-events`, `labels` (model-facing text), `executor` and `handlers/`, `action-bus`, `usage` (caps), `session` (+ `session-swap`, `session-tools`, `session-taps`, `trainer-turns`), `service` (`VoiceService`), `live/*` (transport, token client), `audio/*` | No mock data, no demo code. `@google/genai` only in `live/gemini.ts`, loaded by `import()` |
 | `src/services/simulated/voice.ts` | `ScriptedLiveTransport`, `SilentAudio` | Wired by `VoiceService` when `simulation.voice === 'scripted'` |
 | `src/server/voice`, `src/app/api/voice/token/route.ts` | `guard` (Origin, rate limit), `token` (mint), the route | Server-only; see the dependency table |
-| `src/features/voice`, `src/hooks/voice.tsx`, `useVoiceBus.ts` | provider, dock, button, `VoiceAnnouncer` (the live regions), diagnostics, `useActionBus`, `useScreenSync` | Reads capabilities from `useJourney().voice`; never branches on role |
+| `src/features/voice`, `src/hooks/voice.tsx`, `useVoiceBus.ts` | provider, the floating button and card (`VoiceFloat`, `VoiceCard`, D-133), `VoiceAnnouncer` (the live regions), diagnostics, `useActionBus`, `useScreenSync` | Reads capabilities from `useJourney().voice`; never branches on role |
 | `src/demo/voice-puppet.ts` | `window.__kskDemo.voice` | Demo builds only (`check:demo`) |
 
 **How a session runs.**
@@ -238,7 +238,7 @@ Browser (SwiftChat WebView)                                         Google
 
 **WebView host requirements (voice).** SwiftChat must grant `RESOURCE_AUDIO_CAPTURE` in `WebChromeClient.onPermissionRequest`, the app must hold `RECORD_AUDIO`, and the page must load over HTTPS with `AudioWorklet` available. `/voice/diagnostics` checks all of it on a device. The Voice mode button is absent where `AudioWorklet` or `getUserMedia` is missing, and disabled offline.
 
-**Announcements and focus.** `VoiceAnnouncer`, rendered by `VoiceProvider` (it outlives the dock and every route), owns two visually hidden live regions: a `role="alert"` region that reads each new voice error once, and a polite status region that says "Voice ended" when voice turns off. The dock's error line is visual only. When voice turns off and focus went down with the dock, focus moves to `main#main` (D-127).
+**Announcements and focus.** `VoiceAnnouncer`, rendered by `VoiceProvider` (it outlives the voice card and every route), owns two visually hidden live regions: a `role="alert"` region that reads each new voice error once, and a polite status region that says "Voice ended" when voice turns off. The dock's error line is visual only. When voice turns off and focus went down with the dock, focus moves to `main#main` (D-127).
 
 **Not built here.** A relay and Vertex AI, server-side counters and audit, principal voice (corrections, staff), offline voice, Devanagari name data and a pilot consent flow (design §13).
 

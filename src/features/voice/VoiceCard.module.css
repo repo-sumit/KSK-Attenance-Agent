@@ -1,17 +1,31 @@
 /*
- * The voice dock (voice design §9). A full-bleed band at the top of ScreenLayout's dock, its content on the
- * screen's column (--gutter-inline, set by the frame). Height budget at 320×568: one 44px row plus one 16px
- * line, at most 88px with the padding, so the roster keeps its room; the rest opens on demand.
+ * The voice card (D-133): what the floating voice button grows into while Voice mode is on. VoiceFloat places it
+ * at the bottom-right of the screen's content column, in the band ScreenLayout reserves above its footer and bottom
+ * navigation, so it never covers a row. Height budget at 320×568: one 44px row plus one 16px line, at most 88px
+ * with the padding; the rest opens on demand (the status toggle).
  */
-.dock {
+.card {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  padding: var(--space-4) var(--gutter-inline) var(--space-8);
+  width: 100%;
+  padding: var(--space-4) var(--space-12) var(--space-8);
   background: var(--color-background-surface-raised);
-  border-top: var(--divider-thin) solid var(--color-border-subtle);
+  border: var(--divider-thin) solid var(--color-border-subtle);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-raised);
   color: var(--color-text-primary);
   min-width: 0;
+}
+/* Phones below 400px: a slimmer inset, so the closed row keeps the old dock's width (one row, one line, <= 88px). */
+@media (max-width: 399px) {
+  .card {
+    padding-inline: var(--space-8);
+  }
+}
+.card:focus-visible {
+  outline: var(--border-selected) solid var(--color-border-focus);
+  outline-offset: var(--space-2);
 }
 /* A two-line error (and a two-line status beside Reconnect) still fits the 88px budget at 320px, Marathi included. */
 .withError {
@@ -20,6 +34,14 @@
   padding-bottom: var(--space-4);
 }
 
+/* The status line where there is room: status and mic level, then Minimize at the end. */
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  min-height: var(--touch-target-min);
+}
 .row {
   display: flex;
   align-items: center;
@@ -27,6 +49,10 @@
   min-height: var(--touch-target-min);
 }
 
+/* Where there is room the actions have their own line. */
+.rowWide {
+  justify-content: flex-start;
+}
 .state {
   flex: 1 1 auto;
   min-width: 0;
@@ -185,6 +211,32 @@
   align-items: center;
   gap: var(--space-8);
 }
+/* Minimize: shrinks the card back to the round button while voice keeps running. */
+.minimize {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--touch-target-min);
+  height: var(--touch-target-min);
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-icon-secondary);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+@media (hover: hover) {
+  .minimize:hover {
+    background: var(--color-background-surface);
+  }
+}
+.minimize:focus-visible {
+  outline: var(--border-selected) solid var(--color-border-focus);
+  outline-offset: var(--space-2);
+}
+
 .hold {
   touch-action: none;
   user-select: none;

@@ -5,18 +5,13 @@ import { cx } from '@/lib/cx';
 import { ToastViewport } from '@/components/ui/Toast';
 import { AppBottomNav, NavigationGuardContext, type NavigationGuard } from './AppNav';
 import { ConnectivityBanner } from './ConnectivityBanner';
+import { registerDockAnchor } from './DockAnchor';
 import styles from './ScreenLayout.module.css';
 
 const AreaContext = createContext<NavTab | undefined>(undefined);
 
 /** The app area the current screen belongs to (the header navigation marks it current). */
 export const useScreenArea = () => useContext(AreaContext);
-
-/**
- * Extra content at the top of every screen's dock, above the footer and the bottom navigation, so it never
- * covers a row (the voice dock while Voice mode is on). Provided above the screens; null renders nothing.
- */
-export const DockExtension = createContext<ReactNode>(null);
 
 interface ScreenLayoutProps {
   readonly header?: ReactNode;
@@ -57,7 +52,6 @@ interface ScreenLayoutProps {
  * and content keeps a readable column (`width`) inside the grid margins.
  */
 export function ScreenLayout({ header, banner = true, top, footer, area, bottomNav = false, guardNavigation, surface = 'app', padding = 'page', width = 'wide', card = false, inlineFooter = false, footerLayout = 'stack', children }: ScreenLayoutProps) {
-  const extension = useContext(DockExtension);
   return (
     <AreaContext.Provider value={area}>
       <NavigationGuardContext.Provider value={guardNavigation}>
@@ -75,9 +69,10 @@ export function ScreenLayout({ header, banner = true, top, footer, area, bottomN
               {children}
             </main>
             <div className={styles.dock}>
-              {/* The toast anchor has no height: the extension is still the dock's top, and a toast floats above it. */}
+              {/* The toast anchor has no height: a toast floats above the dock's top. */}
               <ToastViewport />
-              {extension}
+              {/* Where floating controls sit (the voice card's band, D-133): empty unless one is shown. */}
+              <div ref={registerDockAnchor} className={styles.floatAnchor} data-float-anchor="" />
               {footer && <div className={styles.footer}>{footer}</div>}
               {bottomNav && area && <AppBottomNav active={area} />}
             </div>

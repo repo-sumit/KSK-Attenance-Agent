@@ -237,9 +237,11 @@
   --overlay-width-menu: 360px; /* the profile menu anchored under the avatar (600px and up) */
   --overlay-width-drawer: 380px; /* the demo drawer on the right (600px and up) */
   --toast-max-width: 360px;
+  --overlay-width-voice: 360px; /* the floating voice card from 600px (D-133); phones: the viewport minus the margins */
 
   /* ---- Layering ---- */
   --z-header: 10;
+  --z-voice: 20; /* the floating voice button and card (D-133): under menus, sheets, toasts and the demo panel */
   --z-menu: 30;
   --z-sheet: 40;
   --z-toast: 50;
@@ -261,6 +263,18 @@
   --demo-reserve-inline: 0px;
   --demo-reserve-block: 0px;
   --demo-reserve-block-end: 0px;
+
+  /*
+   * Room for the floating voice button and card (D-133), set while they show
+   * (html[data-voice-float], VoiceFloat.module.css). Height: the float's
+   * measured height. Block-end: scroll room at the bottom of the scroller for
+   * the button (it overlays the screen's bottom-right corner). Space: the band
+   * above the footer and bottom navigation that the card sits in, so it never
+   * covers a row.
+   */
+  --voice-float-height: 0px;
+  --voice-reserve-block-end: 0px;
+  --voice-space: 0px;
 
   color-scheme: light;
 }

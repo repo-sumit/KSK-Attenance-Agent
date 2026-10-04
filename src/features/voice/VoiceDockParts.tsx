@@ -5,7 +5,7 @@ import { Icon, type IconName } from '@/components/ui/icons/Icon';
 import { cx } from '@/lib/cx';
 import type { MessageKey } from '@/i18n';
 import type { Caption, VoiceErrorCode, VoiceState, VoiceStatus } from '@/services/voice/session';
-import styles from './VoiceDock.module.css';
+import styles from './VoiceCard.module.css';
 
 type Tone = 'success' | 'info' | 'warning' | 'error' | 'neutral';
 
@@ -106,9 +106,18 @@ export function Hint({ icon, children, compact = false }: { readonly icon: IconN
   );
 }
 
+/** A secondary action in the card's row (Use screen, Resume voice): its icon, and the label that names it. */
+export function RowAction({ icon, label, onClick }: { readonly icon: IconName; readonly label: string; readonly onClick: () => void }) {
+  return (
+    <Button variant="secondary" size="md" leadingIcon={icon} onClick={onClick}>
+      {label}
+    </Button>
+  );
+}
+
 /**
- * Push-to-talk: the mic is on only while the button is held (pointer or Space/Enter). Leaving the screen during a
- * hold (the dock re-mounts on every route) releases it, so the mic never stays on behind the trainer's back.
+ * Push-to-talk: the mic is on only while the button is held (pointer or Space/Enter). Unmounting during a hold (the card
+ * closing or voice ending) releases it, so the mic never stays on behind the trainer's back.
  */
 export function HoldToTalk({
   label,
@@ -119,7 +128,7 @@ export function HoldToTalk({
   readonly label: string;
   readonly talking: boolean;
   readonly talk: (down: boolean) => void;
-  /** In the closed dock's row on a small screen: no icon, so it fits where Use screen sits at 320px. */
+  /** In the closed card's row on a small screen: no icon, so it fits where Use screen sits at 320px. */
   readonly inRow?: boolean;
 }) {
   const down = useRef(false);

@@ -8,7 +8,7 @@
  * The AudioContexts and the mic are untouched by a swap: only the socket changes.
  */
 import { err, ok, type Result } from '@/lib/result';
-import type { TokenError } from './live/token-client';
+import type { TokenError, TokenFailure } from './live/token-client';
 import type { LiveCallbacks, LiveConnection, LiveEvent, LiveSetup, LiveToken, LiveToolResponse, LiveTransport } from './live/transport';
 import type { Timers } from './session-types';
 
@@ -204,26 +204,33 @@ export class LiveLink {
         this.tokenWaits.delete(cancel);
         resolve(result);
       };
-      const cancel = () => done(err('unavailable'));
-      const timer = timers.setTimeout(cancel, TOKEN_TIMEOUT_MS);
+      const cancel = () => done(err('unavailable', { why: 'cancelled' }));
+      const timer = timers.setTimeout(() => done(err('unavailable', { why: 'timeout' })), TOKEN_TIMEOUT_MS);
       this.tokenWaits.add(cancel);
       Promise.resolve()
         .then(() => this.host.token())
-        .then(done, () => done(err('network')));
+        .then(done, () => done(err('network', { why: 'network' })));
     });
   }
 
-  /** The transport and, when it needs one, a fresh single-use token. */
+  /**
+   * The transport and, when it needs one, a fresh single-use token. A failure is logged by step (the transport
+   * import, or the token with its code: network, origin, the HTTP status class, a malformed body, the 8 s timeout),
+   * so "Voice isn't available right now" can be told apart in the debug log; never the token or the body.
+   */
   private async prepare(): Promise<Result<Ticket, 'unavailable' | 'rate_limited'>> {
     let transport: LiveTransport;
     try {
       transport = await this.host.transport();
     } catch {
+      this.host.log('transport import failed');
       return err('unavailable');
     }
     if (!transport.needsToken) return ok({ transport, token: null });
     const token = await this.fetchToken();
     if (token.ok) return ok({ transport, token: token.value });
+    const why = (token.detail?.why as TokenFailure | undefined) ?? token.error;
+    if (why !== 'cancelled') this.host.log(`token failed (${why})`); // a Stop or a loss took over: nothing failed
     return err(token.error === 'rate_limited' ? 'rate_limited' : 'unavailable');
   }
 
