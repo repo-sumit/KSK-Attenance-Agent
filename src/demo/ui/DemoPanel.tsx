@@ -12,6 +12,7 @@ import type { DemoAdapters } from '../adapters';
 import type { DemoController } from '../controller';
 import { PERSONAS } from '../personas';
 import { PRESETS } from '../presets';
+import { DemoData } from './DemoData';
 import { Choice, DemoSettings } from './DemoSettings';
 import { useDemoState } from './useDemoState';
 import styles from './DemoPanel.module.css';
@@ -108,10 +109,12 @@ export function DemoPanel({ demo, controller, onDone }: { readonly demo: DemoAda
         </div>
       </details>
 
+      <DemoData controller={controller} />
+
       <section className={styles.section}>
         {confirmReset ? (
           <div className={styles.confirm}>
-            <p className={styles.hint}>Restore all demo data, records, corrections, face enrolment, queue and settings?</p>
+            <p className={styles.hint}>Restore all demo data on this device: records, corrections, face enrolment, queue and settings?</p>
             <Button variant="destructive" size="md" fullWidth leadingIcon="rotate-ccw" onClick={() => controller.reset()}>
               Reset everything
             </Button>

@@ -1,6 +1,6 @@
 # Demo guide
 
-This build is a stakeholder demo. It uses mock data, a frozen clock, simulated location and a **real camera** with a prototype face check (face _matching_ is simulated), all controlled from a floating **Demo** panel. Nothing leaves the browser: no photo is saved or sent.
+This build is a stakeholder demo. It uses fictional data, a frozen clock, simulated location and a **real camera** with a prototype face check (face _matching_ is simulated), all controlled from a floating **Demo** panel. No photo is saved or sent. The records live either on this device only or, when the build has a Supabase project, in a **shared live backend** that every device sees (D-143; panel → **Data**, script 15).
 
 ## Starting
 
@@ -22,7 +22,7 @@ The demo controls are **collapsed by default on every screen size**: a small yel
 
 **The demo clock** is frozen at **10:15 IST today** (D-017). Shift 1 is open, Period 3 is "Now", and Shift 2 opens at 2:00 PM. Change it under _Time → Demo clock_ (7:30, 10:15, 11:30, 2:30 PM, Real).
 
-**Every day is a fresh day.** The data is built relative to today and reseeds when the date changes (D-018). **Reset everything** (bottom of the panel) restores the full story at any time.
+**Every day is a fresh day.** The data is built relative to today and reseeds when the date changes (D-018). **Reset everything** (bottom of the panel) restores the full story on this device at any time. On the shared source the first device to open the app each day sets up today's story on the server, and the shared records are reset with **Reset shared demo data** (script 16).
 
 ## Quick presets
 
@@ -36,9 +36,9 @@ The demo controls are **collapsed by default on every screen size**: a small yel
 | **First-time user**      | Rajesh Patil                | Starts at login; face not set up; location and camera permissions asked first       |
 | **Offline**              | Rajesh Patil                | No network; downloaded batches still open; records wait to sync                     |
 
-Presets sign straight in and keep the presenter's camera choice and voice model (below). Every preset switches **Voice mode** on; it appears on instructor homes only, so the Principal preset never shows it.
+Presets sign straight in and keep the presenter's camera choice and voice model (below). Every preset switches **Voice Agent** on, the Principal's included (D-139).
 
-**After an update, a stored preset is applied again once.** The demo state stores a `presetsVersion`. When `PRESETS_VERSION` (`src/demo/presets.ts`) is bumped (any change to a preset's configuration, simulation or clock), a browser that stored one of those presets re-applies it on its next start: configuration, simulation and clock follow the preset, while the persona, the sign-in choice and the machine's speed, camera, liveness and voice model are kept. The story therefore resets once after an update, and a demo left open before the update shows the new behaviour (this is how a pre-voice preset gained **Voice mode**). A state with no preset (the presenter's own panel changes) is left alone (D-108). Unlike choosing a preset, the refresh does not clear verification passes or reset face registration.
+**After an update, a stored preset is applied again once.** The demo state stores a `presetsVersion`. When `PRESETS_VERSION` (`src/demo/presets.ts`) is bumped (any change to a preset's configuration, simulation or clock), a browser that stored one of those presets re-applies it on its next start: configuration, simulation and clock follow the preset, while the persona, the sign-in choice and the machine's speed, camera, liveness and voice model are kept. The story therefore resets once after an update, and a demo left open before the update shows the new behaviour (this is how a pre-voice preset gained **Voice Agent**). A state with no preset (the presenter's own panel changes) is left alone (D-108). Unlike choosing a preset, the refresh does not clear verification passes or reset face registration.
 
 ## Logging in during a demo
 
@@ -75,10 +75,12 @@ Everything below the presets and quick login is under **Advanced**, collapsed by
 | Marking            | Frequency: Once / Twice / Periods. Default: Present / Absent / Blank. Half day (+ Ask which half), Leave, OJT (from ERP)                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Time               | Time fencing On/Off. Demo clock                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Staff attendance   | Staff attendance, Self attendance, Principal marks staff                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| Voice              | Voice mode: Off / On (only `voice.enabled`; limits and marking style stay as configured). While on, **Voice model: Live (Gemini) / Scripted (no mic, no network)**, used from the next Voice mode start. Presets keep the voice model. |
+| Voice              | Voice Agent: Off / On (only `voice.enabled`; limits and marking style stay as configured). While on, **Voice model: Live (Gemini) / Scripted (no mic, no network)**, used from the next Voice Agent start. Presets keep the voice model. |
 | Network & language | Network: Online / Offline / Pending sync (a record waiting after a failed automatic attempt, D-064). Next sync: Works / Fails. Language: English / मराठी                                                                                                                                                                                                                                                                                                                                                                                            |
 
 Any configuration change starts a new session: verification passes are cleared and every screen re-renders from the new journey. **Disabled features disappear** from the flow; they are never greyed out.
+
+**Data** sits below Advanced, above **Reset demo**: _Shared (Supabase)_ or _This device_ (a switch only when the build has a Supabase project; otherwise it just reads _This device_). On the shared source it adds **Reset shared demo data**. See scripts 15 and 16.
 
 ## Demo scripts
 
@@ -164,17 +166,17 @@ On-device face detection guides each step: _Face not visible_, _Move closer_, _K
 
 Early in a month, _This month_ covers only a few days, so the percentages swing. That is the real figure, not a fault.
 
-### 11. Voice mode
+### 11. Voice Agent
 
-Voice mode lets the trainer choose the batch, pass verification, mark exceptions and submit by speaking, while the screen follows along (D-078–D-132). It sits inside _Today's attendance_ on an instructor's Home, under the section heading and above the trades, batches or periods: **Voice mode** → a dock at the bottom shows _Listening_, with **Use screen** (pause), **Resume voice** and **Stop voice**. Taps keep working the whole time, and the model is told about each one.
+Voice Agent lets the trainer choose the batch, pass verification, mark exceptions and submit by speaking, while the screen follows along (D-078–D-145). Since D-139 to D-141 it also answers reports questions, marks the trainer's own attendance, and serves the principal (scripts 12 and 13). It is the round mic button at the bottom-right of every signed-in screen (a **Voice Agent** pill from 600px, D-133): tap it and it grows into the voice card, showing _Listening_, with **Use screen** (pause), **Resume voice** and **Stop voice**; minimize it to a round status button while voice keeps running. On a phone of 360×700 or larger, and from 400px wide, the card has two lines (D-136). Taps keep working the whole time, and the model is told about each one.
 
 **Live (Gemini), the real thing.** It needs:
 - `GEMINI_API_KEY` set on the server, in a git-ignored env file: here `.env.development` (ignored by `.gitignore` line 58, even though an earlier line un-ignores it; `npm run voice:spike-token`, `voice:spike-voices` and `test:voice-live` load that file with `--env-file`), or the Vercel project settings. Never in a `NEXT_PUBLIC_` variable, never committed (see `.env.example`). Restart `npm run dev` after adding it. Without it voice says _Voice isn’t available right now_ and the screen keeps working.
 - a microphone, a connection, and HTTPS or `localhost`. Earphones help in a noisy room.
 
-Then: preset **Open instructor** → Advanced → _Voice model_ → **Live (Gemini)** (the default; the select shows only while voice is on) → the floating **Voice mode** button (bottom-right) → allow the microphone → say the trade and the batch (for example "Electrician, shift one unit two"). Verification runs on the screen as usual, and the agent then reads the roster's starting point. Say the exceptions ("Aditi absent"), then "submit". The agent reads the counts and asks; when it has finished asking, say yes (a yes said over the question is asked again, D-112). What to say about privacy: the voice is processed by Google to run voice mode, nothing is recorded, and captions stay in memory.
+Then: preset **Open instructor** → Advanced → _Voice model_ → **Live (Gemini)** (the default; the select shows only while voice is on) → the floating **Voice Agent** button (bottom-right) → allow the microphone. The agent greets you and names only the trades with a batch open now (Electrician, Fitter, Mechanic Diesel at 10:15); say the trade, then the batch (for example "Electrician, shift one unit two"). Verification runs on the screen as usual (the agent only says "please look at the screen"), and the agent then asks who is absent. Say the exceptions ("Aditi absent"; it asks "anyone else?"), then "that's all" or "submit". The agent reads the counts and asks; when it has finished asking, say yes (a yes said over the question is asked again, D-112). What to say about privacy: the voice is processed by Google to run Voice Agent, nothing is recorded, and captions stay in memory.
 
-**Scripted (no mic, no network), for a room without either.** Advanced → _Voice model_ → **Scripted**. Voice mode then talks to a stand-in model that says nothing on its own: you play the model from the browser console with `window.__kskDemo.voice`, exactly as the E2E tests do (`tests/e2e/voice.spec.ts`):
+**Scripted (no mic, no network), for a room without either.** Advanced → _Voice model_ → **Scripted**. Voice Agent then talks to a stand-in model that says nothing on its own: you play the model from the browser console with `window.__kskDemo.voice`, exactly as the E2E tests do (`tests/e2e/voice.spec.ts`):
 
 ```js
 const v = window.__kskDemo.voice;
@@ -190,7 +192,57 @@ v.denyMic();    // the next start finds the microphone blocked: "Microphone is b
 v.drop();       // the connection drops: "Voice disconnected… Tap Reconnect"
 ```
 
-`speak(text)`, `emit(event)`, `responses()` and `goAway(ms)` are there too. A configuration change from the panel stops voice (a new session start); switching Voice mode **Off** removes the button and the dock.
+`speak(text)`, `emit(event)`, `responses()` and `goAway(ms)` are there too. A configuration change from the panel stops voice (a new session start); switching Voice Agent **Off** removes the button and the card.
+
+### 12. Voice for an instructor: only what is open, then reports and own attendance
+
+Use **Live (Gemini)** with a microphone, or **Scripted** and the console calls shown.
+
+1. **Only open batches (D-134).** Preset **Employability Skills** (Meera, 10:15) → Voice Agent. The agent names only the three batches open now (Electrician Shift 1 · Unit 1, Fitter Shift 1 · Unit 2, COPA Shift 1 · Unit 1) and never the two that open at 2:00 PM. Ask for "Shift 2 Unit 3 Electrician": it says it opens at 2:00 PM.
+2. **Auto-open (D-134).** Preset **Batch mapped** (Sunita) → Voice Agent. Only Shift 1 · Unit 2 can be marked, so the agent opens it at once: "Good morning, Sunita. Please look at the screen." The check runs; then "31 students, all present. Who is absent?". **Timetable** (Vikas) opens Period 3 the same way.
+3. **Absentees and submit (D-135).** Say "sab present, sirf Aditi absent" (or "Aditi absent", then "that's all"). The agent asks in one line: "30 present, 1 absent: Aditi Joshi. Submit? It is final." When it has finished asking, say "haan" or "yes".
+4. **Next batch (D-134, D-142).** Preset **Open instructor**: after both Electrician batches are submitted the agent offers "Shift 1, Unit 2, Fitter" next; "haan" opens it. When nothing else can be marked it says so and waits: voice stays on until you say "stop" or it goes idle (2 minutes).
+5. **Reports questions (D-140).** Still on **Open instructor** (Rajesh), ask "How is Electrician Shift 1 Unit 1 doing?", "Who is at risk?" or "Which student has the lowest attendance?". The agent answers in one or two sentences with the app's own figures (it names the lowest three at-risk students), then asks whether to show it. Say yes: Reports opens with that batch expanded and scrolled into view, or the at-risk section. Scripted: `await v.toolCall('get_batch_report', { batch: 'electrician shift 1 unit 1' }); await v.toolCall('show_report');` Name the trade: after step 4 his reports also hold Fitter Shift 1 · Unit 2, so a bare shift and unit can match more than one batch, and the agent then asks which.
+6. **Register by voice (D-140).** On **Open instructor**: "Download last month's register for Electrician Shift 2 Unit 1": Reports opens with the register sheet, that batch and last month already chosen. Tap **Download** (a browser download needs your tap). Scripted: `await v.toolCall('download_register', { target: 'shift 2 unit 1', month: 'LAST_MONTH' });`
+7. **Own attendance (D-141).** "Meri attendance lagao" or "mark my attendance": My attendance opens and runs the same location and face check as a tap; when it passes, the agent saves the mark and says "Your attendance is marked present at 10:15 AM." Ask again: it says it is already marked. With _Where is the phone_ → **Outside**, the check fails, the agent says why, and nothing is marked (there is no override).
+
+### 13. Voice for the principal: today's overview, staff marking, insights
+
+Preset **Principal** → Voice Agent (the button is there for the principal too, D-139).
+
+1. **Overview.** The agent greets "Anil" (no title) and says today's state in one line: "Four of seventeen batches submitted, five staff not marked yet. What do you need?".
+2. **Screens and notices.** "Open staff attendance" opens Attendance → Staff. "Any notices today?" reads up to three notices with their dates and offers to open them; "haan, kholo" opens Home with the Announcements sheet.
+3. **Staff mark after a yes (D-141).** "Who is not marked yet?" names up to five. "Mark Pradeep Gawde absent": the staff screen opens and the agent asks "Mark Pradeep Gawde absent for today? It is final." Nothing is saved yet. Say "haan": the row shows _Absent · Marked by principal_, locked, and the agent says how many are still not marked. Someone who marked themselves is never overwritten: the agent says their own mark stands. Scripted: `const ask = await v.toolCall('mark_staff', { staff: 'Pradeep Gawde', status: 'ABSENT' }); v.emit({ turnComplete: true }); v.speak('haan'); await v.toolCall('mark_staff', { staff: 'Pradeep Gawde', status: 'ABSENT', confirm_token: ask.confirm_token });`
+4. **Insights (D-140).** "How is Electrician Shift 1 Unit 2 doing?", "How many students are at risk across the institute?" or "How is the institute this month compared with last month?" The answers are the app's figures; a yes shows the matching report. Corrections are not done by voice: they stay on the record screen with a reason.
+
+### 14. Download the attendance register (D-137)
+
+1. Preset **Batch mapped** (or **Open instructor**) → **Reports** → _My batches_. Each batch row ends with a download icon. Tap the one on **Electrician · Shift 1 · Unit 2** (its name says "Download register for Electrician · Shift 1 · Unit 2"): the sheet _Download attendance register_ opens with the batch as its subtitle; the row stays collapsed.
+2. Choose the month: this month (_1–5 Oct so far_ style) or last month → **Download**. The file `KSK-register_electrician_S1-U2_<yyyy-mm>.html` downloads and the toast says _Register downloaded_. Open it in the browser: the state header with the emblem, the KPI strip, a day-by-day register (P, A, at-risk rows in amber, Sundays grey, `*` for a correction), the corrections, signature lines, and **Print / Save as PDF** for A4 landscape.
+3. Expand a batch: **Download register** also sits at the end of its student list, beside _Hide students_.
+4. **Trade register:** each trade's label line has **Trade register**: one file with a trade summary, then each batch on its own page.
+5. Preset **Principal** → Reports → _Batch attendance_: the same buttons on all 17 batches and every trade.
+6. Inside the SwiftChat WebView a download is not possible yet: the app says so and builds nothing. Advanced has no switch for this; demo it in a browser.
+
+### 15. Two devices on the shared backend (Supabase)
+
+Needs a build with `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` (for example `npm run dev` with them in `.env.development`; `docs/SUPABASE.md`). The panel's **Data** row then reads **Shared (Supabase)**.
+
+1. **Laptop:** preset **Principal**. Home shows _N of 17 batches submitted_. The first device to open the app each day sets up today's story on the server (the first time about 1.2 MB, a couple of seconds; later days only the missing days).
+2. **Phone** (or a second browser profile): preset **Batch mapped** (Sunita). Panel → Time → Demo clock **2:30 PM**, so Shift 2 · Unit 2 is open. Open it, mark one student absent, review and submit.
+3. Watch the laptop: without a reload, Home shows one more batch submitted within about a second (Realtime). Reports updates too.
+4. Records are saved on the phone first and then pushed, as in script 5: a batch marked offline (preset **Offline**, which brings its downloaded batches on the shared source too) reaches the laptop once the phone is back online.
+5. If someone else already submitted that batch on another device, the phone's copy is not saved: the server's record wins and the phone shows _Not saved: someone else submitted this batch first._ where the server copy cannot be read.
+
+The shared demo keeps today's records for every presenter until the next day or a shared reset: a batch submitted in an earlier run stays submitted.
+
+### 16. The Data switch and Reset
+
+1. Panel → **Data** → **This device**: the app reloads and asks you to sign in again; records now stay on this device only (no network use). **Shared (Supabase)** switches back the same way. A build without a Supabase project shows only _This device_. While this device holds records waiting to sync, the switch refuses and stays put, saying _N records on this device are waiting to sync. Sync them or reset the demo before switching data._ (for one: _1 record … is waiting to sync. Sync it or …_): tap **Sync now** online (or **Reset demo**), then switch. On _Shared (Supabase)_, presets, Reset and a fresh device bring the story's downloaded and stale batches, as on _This device_; a new day keeps only what the device holds.
+2. **Reset demo** → **Reset everything** restores this device only (records, corrections, face enrolment, queue and settings) and keeps your Data choice.
+3. **Reset shared demo data** (shared source only) asks first: _Delete the demo's attendance, corrections, staff marks and face registrations on the server for every device, then set up today's story again?_ → **Reset shared data** clears the server for **every** device, sets up today's story again and restarts this device.
+4. **Reset uses two server functions** from `supabase/migrations/20261005041600_ksk_reset_functions.sql`, which the owner pasted once into the Supabase SQL editor (D-144; on `ksk-attendance` since 5 October 2026). On a project without them the panel says _Reset isn't set up on the server yet_ and the browser console shows one 404 line for that call; nothing else breaks. After a reset, another device that was open shows the reset batches as open again on its next online read.
+5. On the shared source, the First-time preset and _Face registered: No_ remove that person's face registration on the server, so every device demonstrating that person sees it; the everyday presets and _Face registered: Yes_ give it back.
 
 ## Tips
 
@@ -199,4 +251,6 @@ v.drop();       // the connection drops: "Voice disconnected… Tap Reconnect"
 - **No camera on this machine** (or it's in use): _Advanced → Camera → Simulated_. The face steps then play without a camera and say "Demo simulation · no camera or photo is used". Presets keep this choice.
 - **Camera over the network:** browsers allow the camera only on HTTPS or `localhost`. Use the Vercel URL, or `localhost`, not a LAN IP over http.
 - **No microphone, no network or no Gemini key:** _Advanced → Voice model → Scripted_ (script 11). Presets keep this choice.
+- **The shared data looks used up** (a batch already submitted by an earlier presenter): **Reset shared demo data** (script 16), or switch the Data row to **This device** for a private story.
+- **The shared project does not answer:** a free Supabase project pauses after a period without use; restore it from the Supabase dashboard (`docs/SUPABASE.md`), or switch to **This device**.
 - **What to say about face checks:** the camera and the movement check are real and run on the phone; **matching is simulated**, nothing is saved or sent, and it is **not** secure biometric verification (a photo or video held up to the camera can pass). Production needs a certified matching and liveness provider (D-048).

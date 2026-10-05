@@ -1,5 +1,5 @@
 /**
- * Selection tools: get_trades, select_trade, select_batch, go_back, verify_again, navigate. Ported from the
+ * Selection tools: get_trades, select_trade, select_batch, go_back, verify_again (navigate is in ./capabilities). Ported from the
  * MVP handlers (MVP-05 §3.3, §7, §8, §13; MVP-04 §4.1–4.3, §4.9, §4.12–4.13) with KSK services: the trade
  * board and the trainer's lists come from AttendanceService, the check from VerificationService, and the
  * roster only through openRoster (INV-16). Leaving a batch never asks: its marks stay in the draft (D-083).
@@ -8,12 +8,15 @@
  */
 import type { OpenRosterError, SessionCard } from '@/services/attendance';
 import { uncalledIds, withBatchList, withOpening, withTrade, withTradeList } from '@/domain/voice/flow';
-import { resolveSession, resolveTrade } from '@/domain/voice/match';
+import { parseSessionKey } from '@/domain/attendance';
+import { normalize, resolveSession, resolveTrade } from '@/domain/voice/match';
 import { routes } from '@/lib/routes';
+import { purposeKey } from '@/services/verification';
 import { needText } from '../app-events';
-import { currentView, openBatchInstruction, readSessions, readTrades, stepHint, verifyingInstruction, type VoiceView } from '../instructions';
+import { markableNow, nextOpening, nothingOpen, openBatchInstruction, readSessions, readTrades, stepHint, verifyingInstruction, type VoiceView } from '../instructions';
 import { nameText, sessionLabel, spokenTime } from '../labels';
 import type { ToolResult } from '../tools';
+import type { CheckMemory } from './base';
 import { batchEntries, batchInfo, fail, snapshot, str, tradeList, wrongStep, type Handler, type HandlerContext } from './context';
 import { hintOf, reviewTicket, stepNow, toReview, tokenField } from './review';
 
@@ -25,14 +28,14 @@ export const getTrades: Handler = async (h) => {
   return { ok: true, step, trades: tradeList(view), ...tokenField(hint.token), instruction: hint.instruction };
 };
 
-/** select_trade and go_back answer with the list, never with a batch (MVP-04 §2.3). */
+/** select_trade and go_back answer with the list, never with a batch (MVP-04 §2.3): the sessions that can be marked now (D-134). */
 function batchListResult(view: VoiceView): ToolResult {
   const trade = view.trades.find((t) => t.id === view.flow.tradeId);
   return {
     ok: true,
     step: view.flow.step,
     ...(view.plan.tradeStep && trade ? { trade: { id: trade.id, name: nameText(trade.name) } } : {}),
-    batches: batchEntries(view.cards, view.plan),
+    batches: batchEntries(view.cards.filter(markableNow), view.plan),
     counts: null,
     last_marked: null,
     current: null,
@@ -112,7 +115,11 @@ function precheck(card: SessionCard, online: boolean): OpenRosterError | null {
 function toGateway(h: HandlerContext, card: SessionCard): ToolResult {
   const { ctx, plan } = h.deps;
   let flow = h.state.flow;
-  if (plan.tradeStep && flow.tradeId !== card.trade.id) flow = withTrade(flow, card.trade.id);
+  if (plan.tradeStep && flow.tradeId !== card.trade.id) {
+    // another trade's session (the offer after a submit): its trade's sessions, as the board last loaded them
+    flow = withTrade(flow, card.trade.id);
+    h.state.cards = h.state.board.filter((c) => c.trade.id === card.trade.id);
+  }
   h.state.flow = withOpening(flow, card.key);
   const memory = h.startVerify(card.key); // the gateway screen starts its own count again
   h.navigate(routes.open(card.key), false);
@@ -128,22 +135,73 @@ function toGateway(h: HandlerContext, card: SessionCard): ToolResult {
   return { ok: true, step: 'VERIFY', batch: batchInfo(card, plan), total: card.studentCount, instruction };
 }
 
+/** The sessions open now, read out for the trainer to choose from (D-134); `before` says why the words found none. */
+function openList(view: VoiceView, before = ''): ToolResult {
+  const { plan } = view;
+  const nothing = nothingOpen(view);
+  if (nothing) return fail('NOT_FOUND', `${nothing} Say so in one short line.`, { batches: [] });
+  const period = plan.slotWords === 'period';
+  const trade = plan.tradeStep ? view.trades.find((t) => t.id === view.flow.tradeId) : undefined;
+  const cards = view.cards.filter(markableNow);
+  const list = cards.map((c) => sessionLabel(c, plan.slotWords)).join('; ');
+  const head = trade ? `${nameText(trade.name)} has these batches open now` : `The ${period ? 'periods' : 'batches'} open now are`;
+  const hint = period ? ' Pass a period as "period <n>" (a number alone is read as a shift).' : '';
+  return fail('NOT_FOUND', `${before}${head}: ${list}. Read them and ask which one.${hint}`, { batches: batchEntries(cards, plan) });
+}
+
+/**
+ * Words that match several sessions, none of them markable now (D-134): why they cannot be opened (their windows open
+ * later, or closed), never "which one"; mixed reasons say what is open instead.
+ */
+function notMarkable(view: VoiceView, cards: readonly SessionCard[]): ToolResult {
+  const { plan } = view;
+  const labels = cards.map((c) => sessionLabel(c, plan.slotWords)).join(' and ');
+  const tail = nothingOpen(view) ? ' Say so in one short line.' : ' Say so in one line and ask for another batch.';
+  if (cards.every((c) => c.status === 'future')) {
+    const time = nextOpening(cards);
+    const oneStart = new Set(cards.map((c) => c.scheduled.window?.start)).size === 1;
+    const when = time ? (oneStart ? `open at ${time}` : `open later today, the first at ${time}`) : 'open later today';
+    return fail('WINDOW_NOT_OPEN', `The attendance windows for ${labels} ${when}.${tail}`, time ? { opens: time } : {});
+  }
+  if (cards.every((c) => c.status === 'closed')) {
+    return fail('WINDOW_CLOSED', `The attendance windows for ${labels} closed earlier today, so they cannot be marked now; only the principal can correct them.${tail}`);
+  }
+  return openList(view, `${labels} cannot be marked now. `);
+}
+
+/**
+ * An exact session key from an earlier result (the offer after a submit, D-134) that belongs to another of the trainer's
+ * trades, only when the words are a session key that is not on offer: found on the board the submit (or the kickoff)
+ * already loaded, else on one load of every trade.
+ */
+async function inOtherTrade(h: HandlerContext, view: VoiceView, asked: string): Promise<SessionCard | undefined> {
+  if (!h.deps.plan.tradeStep || !parseSessionKey(asked)) return undefined;
+  const q = normalize(asked);
+  if (view.cards.some((c) => normalize(c.key) === q)) return undefined;
+  const find = (board: readonly SessionCard[]) => board.find((c) => normalize(c.key) === q && c.trade.id !== view.flow.tradeId);
+  return find(h.state.board) ?? find(await h.wholeBoard());
+}
+
 export const selectBatch: Handler = async (h, args) => {
-  const { ctx, plan, verification } = h.deps;
+  const { plan } = h.deps;
   const view = await h.view();
+  const asked = str(args.batch);
+  // another trade's session opens as it is: the flow and the screen move to its trade only with the gateway or the open
+  // batch (toGateway, openBatch), so a check or a roster that fails leaves both on this trade's list
+  const other = await inOtherTrade(h, view, asked);
+  if (other) return openSession(h, view, other);
   const trade = view.trades.find((t) => t.id === view.flow.tradeId);
   if (plan.tradeStep && !trade) return fail('NO_TRADE_SELECTED', `Choose the trade first. ${readTrades(view.trades)}`);
   const choices = view.cards.map((card) => ({ key: card.key, shift: card.batch.shift, unit: card.batch.unit, tradeName: card.trade.name, slot: card.address.slot, card }));
-  const match = resolveSession(str(args.batch), choices);
-  if (match.kind === 'none') {
-    const period = plan.slotWords === 'period';
-    const list = view.cards.map((c) => sessionLabel(c, plan.slotWords)).join('; ');
-    const head = trade ? `${nameText(trade.name)} has these batches` : `Today's ${period ? 'periods' : 'batches'} are`;
-    const hint = period ? ' Pass a period as "period <n>" (a number alone is read as a shift).' : '';
-    return fail('NOT_FOUND', `${head}: ${list || 'none'}. Read them and ask which one.${hint}`, { batches: batchEntries(view.cards, plan) });
-  }
+  // the sessions open now first (D-134); a later, closed or submitted one only when the words name nothing open, so it
+  // still answers why it cannot be opened
+  const open = choices.filter((c) => markableNow(c.card));
+  const first = resolveSession(asked, open);
+  const match = first.kind === 'none' ? resolveSession(asked, choices) : first;
+  if (match.kind === 'none') return openList(view);
   if (match.kind === 'ambiguous') {
     const cards = match.candidates.map((c) => c.card);
+    if (first.kind === 'none') return notMarkable(view, cards); // nothing it matches can be marked now
     return fail('AMBIGUOUS', `That matches ${cards.map((c) => sessionLabel(c, plan.slotWords)).join(' or ')}. Ask which one.`, { batches: batchEntries(cards, plan) });
   }
   const card = match.value.card;
@@ -154,6 +212,12 @@ export const selectBatch: Handler = async (h, args) => {
     const hint = hintOf(h, view);
     return { ok: true, batch: batchInfo(card, plan), total: card.studentCount, ...snapshot(view), ...tokenField(hint.token), instruction: `This batch is already open. ${hint.instruction}` };
   }
+  return openSession(h, view, card);
+};
+
+/** The session the words named: refused (why it cannot be opened), the gateway first (the check), or the open batch. */
+async function openSession(h: HandlerContext, view: VoiceView, card: SessionCard): Promise<ToolResult> {
+  const { ctx, plan, verification } = h.deps;
   const refused = precheck(card, h.deps.isOnline());
   if (refused) return refusal(h, view, card, refused);
   const passed = !plan.verification.required || (await verification.hasPass(ctx, { kind: 'session', key: card.key }));
@@ -177,7 +241,7 @@ export const selectBatch: Handler = async (h, args) => {
   if (done.flow.step === 'REVIEW' && h.state.screen !== review) h.navigate(review, false);
   h.focus(done);
   return { ok: true, batch: batchInfo(card, plan), total: card.studentCount, ...snapshot(done), ...tokenField(token), instruction: openBatchInstruction(done, token ?? undefined) };
-};
+}
 
 export const goBack: Handler = async (h, args) => {
   const { plan, bus } = h.deps;
@@ -199,12 +263,17 @@ export const goBack: Handler = async (h, args) => {
 /**
  * "Check again": the screen's own retry, which it honours only on a problem with a retry. When voice knows the screen
  * cannot retry now (no face tries left, a tap it waits for, a check already running), it says so instead of promising
- * a check that never runs.
+ * a check that never runs. The check for the trainer's own attendance (mark_my_attendance) is retried the same way,
+ * when it is the check on screen.
  */
 export const verifyAgain: Handler = async (h) => {
-  const { flow } = h.state;
+  const { flow, self } = h.state;
+  if (self && (flow.step !== 'VERIFY' || h.state.screen === routes.selfAttendance)) return checkAgain(h, self, purposeKey({ kind: 'self' }));
   if (flow.step !== 'VERIFY' || !flow.sessionKey) return wrongStep(await h.view());
-  const v = h.verifyFor(flow.sessionKey);
+  return checkAgain(h, h.verifyFor(flow.sessionKey), purposeKey({ kind: 'session', key: flow.sessionKey }));
+};
+
+function checkAgain(h: HandlerContext, v: CheckMemory, purpose: string): ToolResult {
   const limit = h.deps.ctx.journey.verification.faceRetryLimit;
   if (limit !== null && v.faceFailures >= limit) {
     return fail('NO_TRIES_LEFT', "No face tries are left today, so the screen cannot check again. Say in one short line, in the trainer's language: please ask your principal to mark your attendance today. Then wait.", { step: 'VERIFY' });
@@ -214,22 +283,6 @@ export const verifyAgain: Handler = async (h) => {
   }
   if (v.cameraPending) return { ok: true, step: 'VERIFY', instruction: 'The check is running on the screen now. Say in a few words: please wait. Then stop and wait for the app.' };
   v.prompts.clear();
-  h.deps.bus.emit({ type: 'verify_retry', sessionKey: flow.sessionKey });
+  h.deps.bus.emit({ type: 'verify_retry', purpose });
   return { ok: true, step: 'VERIFY', instruction: 'Checking again. Say in a few words: please wait. Then stop and wait for the app. If no [APP] message follows, ask the trainer to follow the screen.' };
-};
-
-const SCREENS = { home: { name: 'Home', href: routes.home }, reports: { name: 'Reports', href: routes.reports } } as const;
-
-/** "home dikhao", "open reports": the screen only; the attendance flow moves with its own tools (MVP-05 §13). */
-export const navigateTool: Handler = async (h, args) => {
-  const targets = h.deps.plan.navTargets;
-  const target = targets.find((t) => t === str(args.to).toLowerCase());
-  if (!target) {
-    return fail('INVALID', `There is no "${nameText(str(args.to))}" screen. The screens are ${targets.map((t) => SCREENS[t].name).join(' and ')}.`);
-  }
-  h.navigate(SCREENS[target].href, false);
-  const view = await h.view();
-  const cur = currentView(view);
-  const then = cur && view.flow.step === 'ROLL_CALL' ? ` The roll call is still open: then call out ${cur.call_as}.` : '';
-  return { ok: true, screen: target, instruction: `The ${SCREENS[target].name} screen is open. Say so in a few words.${then}` };
-};
+}

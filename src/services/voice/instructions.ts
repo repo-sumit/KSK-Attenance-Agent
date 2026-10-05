@@ -10,7 +10,7 @@
 import type { StatusCode } from '@/domain/status';
 import { uncalledIds } from '@/domain/voice/flow';
 import type { DraftSnapshot } from '../marking-draft';
-import { askExceptions, byException, countsText, currentView, defaultOf, openDraft, othersThan, stepHint, viewCounts, type VoiceView } from './instructions-core';
+import { askExceptions, byException, countsText, currentView, defaultOf, openDraft, stepHint, viewCounts, type VoiceView } from './instructions-core';
 import { batchLabel, first, nameText, slotLabel, statusWords, studentView, word, type StudentView } from './labels';
 
 export * from './instructions-core';
@@ -97,12 +97,16 @@ export function afterMark(view: VoiceView, marked: StudentView, status: StatusCo
   const confirm = roll ? `Confirm ${said} in 2 to 6 words in the trainer's language` : `Confirm ${said} in a few words`;
   // A student not marked yet may be one exception of "sab present, sirf ...": the model follows the latest
   // instruction, so it has to say here that mark_remaining comes next (MVP live runs stopped here).
+  // By exception (live rehearsal, D-135): "sab present, sirf Aditi absent" already says that is all, so the submit
+  // question comes next instead of "anyone else?".
   const exception =
     !roll && opts.fresh && view.flow.rollCall && view.flow.step === 'ROLL_CALL'
       ? 'If the trainer named this student as an exception to one status for everyone else ("sab present, sirf ..."), say nothing yet: set any other named students, then call mark_remaining. Otherwise: '
-      : '';
+      : !roll && opts.fresh && byException(view)
+        ? 'If the trainer said these are the only ones ("sirf ...", "only ...", "baaki sab present"), say nothing yet: set any other named students, then call submit_attendance. Otherwise: '
+        : '';
   const cur = currentView(view);
-  if (byException(view)) return `${exception}${confirm}. Then ${askExceptions(view)}. Then stop and wait.`;
+  if (byException(view)) return `${exception}Confirm ${said} in two or three words, then ${askExceptions(view)}, in the trainer's language. Then stop and wait.`;
   if (!cur) {
     const ask = opts.submitToken
       ? `Then say everyone is marked. ${confirmSubmitInstruction(view, opts.submitToken)}`
@@ -136,10 +140,12 @@ export function openBatchInstruction(view: VoiceView, submitToken?: string): str
   }
   const switchHint = view.plan.rollCallSwitch ? ' If the trainer wants every name called ("naam se bulao", "call the names"), call start_roll_call.' : '';
   if (byException(view)) {
+    // D-135: one short line, then only the absentees are asked for (everyone starts present)
+    const presetLine = preset ? ` Then say in a few words who is already set and will not be asked about: ${preset}.` : '';
     const ask = saved
-      ? `Say ${saved} ${saved === 1 ? 'change is' : 'changes are'} already saved and everyone else is marked ${word(def!)}, and ${askExceptions(view)}.`
-      : `Say everyone is marked ${word(def!)} to start with, and ask who is not (${othersThan(view.plan, def!)}).`;
-    return `${head} ${ask} Then stop and wait. Mark each student the trainer names with set_student_status.${switchHint}`;
+      ? `In the trainer's language, in one short line, say ${saved} ${saved === 1 ? 'student is' : 'students are'} already marked and everyone else is present, and ask who else is absent.`
+      : `In the trainer's language, with numbers said the way that language says them, in one short line, say ${batchLabel(card.batch, card.trade)}${sheet ? `, ${sheet} attendance` : ''}, ${draft.students.length} students, everyone present, and ask who is absent (for example "Electrician Shift 1 Unit 1: 28 students, all present. Who is absent?").`;
+    return `${ask}${presetLine} Then stop and wait. Mark each student the trainer names with set_student_status.${switchHint}`;
   }
   const lead = def ? ` Say every student counts as ${word(def)} until marked.` : '';
   const cur = currentView(view);
@@ -151,7 +157,7 @@ export function openBatchInstruction(view: VoiceView, submitToken?: string): str
 /** submit_attendance without a valid code: the review question (MVP C9). */
 export function confirmSubmitInstruction(view: VoiceView, token: string): string {
   const named = exceptionsText(view);
-  return `Read the counts: ${countsText(viewCounts(view))}${named ? ` (${named})` : ''}. Say submit is final and cannot be changed later. Ask whether to submit. Call submit_attendance with confirm_token "${nameText(token)}" only after a clear yes. If the trainer changes someone instead, use set_student_status.`;
+  return `In one line, read the counts: ${countsText(viewCounts(view))}${named ? ` (${named})` : ''}, then ask whether to submit, saying it is final (for example "26 present, 2 absent: Rahul Patil, Priya Shinde. Submit? It is final."). Call submit_attendance with confirm_token "${nameText(token)}" only after a clear yes. If the trainer changes someone instead, use set_student_status.`;
 }
 
 /** A name the trainer gave that could not be marked yet (the open-names guard, MVP-05 §4.5). */

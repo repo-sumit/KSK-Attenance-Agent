@@ -32,7 +32,7 @@ export interface SimulationState {
   readonly liveness: LivenessSetting;
   readonly permissions: { readonly location: PermissionState; readonly camera: PermissionState };
   readonly online: boolean;
-  /** Voice mode: the real Gemini Live session or the scripted driver. Read when a session starts. */
+  /** Voice Agent: the real Gemini Live session or the scripted driver. Read when a session starts. */
   readonly voice: VoiceSource;
   readonly nextSyncFails: boolean;
   /** 1 = realistic pacing, 0 = instant (automated tests). */

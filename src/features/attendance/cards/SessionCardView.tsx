@@ -45,9 +45,16 @@ function CardState({ card, viewer }: { readonly card: SessionCard; readonly view
     case 'submitted':
       return (
         <span className={styles.submitted}>
-          <StatusLine tone="success" icon="circle-check" nowrap>
-            {t('selection.submitted')}
-          </StatusLine>
+          {card.submission?.rejected ? (
+            // This phone's copy lost to another submission and the server's copy cannot be read right now.
+            <StatusLine tone="warning" icon="alert">
+              {t('sync.rejected')}
+            </StatusLine>
+          ) : (
+            <StatusLine tone="success" icon="circle-check" nowrap>
+              {t('selection.submitted')}
+            </StatusLine>
+          )}
           <span className={styles.view}>
             {card.submission?.pendingSync ? t('selection.waitingToSync') : t('selection.submittedView', { time: format.time(card.submission?.at ?? '') })}
             <Icon name="chevron-right" size={16} />

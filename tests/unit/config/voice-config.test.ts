@@ -64,10 +64,11 @@ describe('voice configuration', () => {
     expect(issue?.message).toMatch(/retention/i);
   });
 
-  it('journey: voice exists for an instructor when enabled, never for the institute home', () => {
+  it('journey: voice exists wherever it is enabled, for instructors and the institute home alike (D-139)', () => {
     expect(journeyFor('st-rajesh').voice.enabled).toBe(false);
     expect(journeyFor('st-rajesh', { voice: { enabled: true } }).voice).toMatchObject({ enabled: true, languages: ['en', 'mr'], limits: { sessionMinutes: 20, idleSeconds: 120, dailyMinutes: 60 } });
-    expect(journeyFor('st-anil', { voice: { enabled: true } }).voice.enabled).toBe(false); // principal: institute home (D-087)
+    expect(journeyFor('st-anil').voice.enabled).toBe(false);
+    expect(journeyFor('st-anil', { voice: { enabled: true } }).voice.enabled).toBe(true); // the principal too (D-139 supersedes D-087)
   });
 
   it('journey fails closed when the default language is not a voice language', () => {

@@ -1,4 +1,4 @@
-import { expect, expectNoOverflow, preset, test } from './fixtures';
+import { demo, expect, expectNoOverflow, preset, test } from './fixtures';
 
 /** The hidden voice check screen (Task 20) on Chromium's fake audio device. */
 test.describe('voice diagnostics', () => {
@@ -7,7 +7,7 @@ test.describe('voice diagnostics', () => {
     await preset(page, 'open');
     await page.goto('/voice/diagnostics');
     await expect(page.getByRole('heading', { name: 'Voice check' })).toBeVisible();
-    await expect(page.getByText('This phone can run voice mode.', { exact: true })).toBeVisible();
+    await expect(page.getByText('This phone can run Voice Agent.', { exact: true })).toBeVisible();
     const checks = page.getByRole('list', { name: 'Checks' });
     await expect(checks.getByText('Pass', { exact: true })).toHaveCount(5);
     await expect(checks.getByText('16000 Hz', { exact: true })).toBeVisible();
@@ -43,8 +43,9 @@ test.describe('voice diagnostics', () => {
     });
   }
 
-  test('is absent where voice is off: the principal is sent home', async ({ page }) => {
+  test('is absent where voice is off: the user is sent home', async ({ page }) => {
     await preset(page, 'principal');
+    await demo(page, `setConfig({ voice: { enabled: false } })`);
     await page.goto('/voice/diagnostics');
     await page.waitForURL(/\/(home|attendance)$/);
     await expect(page.getByRole('heading', { name: 'Voice check' })).toHaveCount(0);

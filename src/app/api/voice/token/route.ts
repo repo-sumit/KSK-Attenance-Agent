@@ -1,4 +1,4 @@
-// POST /api/voice/token: the one server endpoint of voice mode (D-078; design spec §2, §4, §10).
+// POST /api/voice/token: the one server endpoint of Voice Agent (D-078; design spec §2, §4, §10).
 // Same origin, no body. It hands the browser a single-use Gemini Live token; the API key never leaves the server.
 //   200 { token, expiresAt, model, apiVersion }
 //   403 { error: 'origin' }   429 { error: 'rate_limited', retryAfterS }   503 { error: 'unavailable' }

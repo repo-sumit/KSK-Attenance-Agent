@@ -1,5 +1,5 @@
 /**
- * Voice diagnostics (Task 20): what the device can do for voice mode, as rows a screen can show and a plain-text
+ * Voice diagnostics (Task 20): what the device can do for Voice Agent, as rows a screen can show and a plain-text
  * report a trainer can copy to support. Pure TypeScript: the probes that touch the browser are in
  * ./audio/probes.ts. A report holds no audio, no device names and no student data.
  */

@@ -2,6 +2,8 @@
  * Action Bus (D-085): typed, sequenced UI events from the voice executor to the screens.
  * Screens subscribe through `useVoiceBusEvent`; they never import voice code.
  */
+import type { StaffAttendanceRecord } from '@/domain/attendance';
+import type { LocalDate } from '@/lib/time';
 import { voiceDebug } from './debug';
 
 export type UiEvent =
@@ -10,7 +12,21 @@ export type UiEvent =
   /** Trade switcher: the chosen trade lives in AttendanceBoard's local state, not the URL. */
   | { readonly seq: number; readonly type: 'show_trade'; readonly tradeId: string }
   | { readonly seq: number; readonly type: 'focus_student'; readonly sessionKey: string; readonly studentId: string }
-  | { readonly seq: number; readonly type: 'verify_retry'; readonly sessionKey: string }
+  /** "Check again": the verification screen of `purpose` (a purposeKey: "session:<key>" or "self") retries, where it offers a retry. */
+  | { readonly seq: number; readonly type: 'verify_retry'; readonly purpose: string }
+  /** The trainer's own attendance was saved by voice (navigate to My attendance first): the screen shows its result (D-141). */
+  | { readonly seq: number; readonly type: 'self_marked'; readonly record: StaffAttendanceRecord }
+  /** Home's notices sheet opens (navigate to Home comes first): it lives in AnnouncementBanner's local state. */
+  | { readonly seq: number; readonly type: 'show_announcements' }
+  /** Reports (navigate first): BatchesSection expands the batch's row and scrolls it into view (D-140). */
+  | { readonly seq: number; readonly type: 'show_batch_report'; readonly batchId: string }
+  /** Reports (navigate first): AtRiskSection scrolls itself into view. */
+  | { readonly seq: number; readonly type: 'show_at_risk' }
+  /**
+   * Reports (navigate first): BatchesSection opens the register sheet for one batch (`tradeId` null) or a trade's
+   * batches, on `month` (a month the sheet offers). The download itself needs the trainer's tap.
+   */
+  | { readonly seq: number; readonly type: 'open_register'; readonly batchIds: readonly string[]; readonly tradeId: string | null; readonly month: LocalDate }
   | { readonly seq: number; readonly type: 'end_voice' };
 
 export type UiEventInput = { [K in UiEvent['type']]: Omit<Extract<UiEvent, { type: K }>, 'seq'> }[UiEvent['type']];

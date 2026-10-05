@@ -39,7 +39,7 @@ describe('ActionBus', () => {
       order.push(`a:${e.type}#${e.seq}`);
       if (e.type === 'end_voice' && !reentered) {
         reentered = true;
-        const inner = bus.emit({ type: 'verify_retry', sessionKey: 'k' });
+        const inner = bus.emit({ type: 'verify_retry', purpose: 'session:k' });
         expect(inner.seq).toBe(2); // stamped and returned at once, delivered later
         expect(order).toEqual(['a:end_voice#1']);
       }

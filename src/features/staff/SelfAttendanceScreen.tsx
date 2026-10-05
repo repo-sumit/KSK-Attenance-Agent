@@ -15,6 +15,7 @@ import { useI18n } from '@/hooks/i18n';
 import { useServices } from '@/hooks/services';
 import { useSession } from '@/hooks/session';
 import { useQuery } from '@/hooks/useQuery';
+import { useVoiceBusEvent } from '@/hooks/useVoiceBus';
 import { routes } from '@/lib/routes';
 import { toLocalDate } from '@/lib/time';
 import { ResultScreen } from '../feedback/ResultScreen';
@@ -30,8 +31,14 @@ export function SelfAttendanceScreen() {
   const { staffAttendance, verification } = useServices();
   const j = ctx.journey;
   const { data } = useQuery(`self:${ctx.user.id}`, async () => ({ record: await staffAttendance.myRecord(ctx), verified: await verification.hasPass(ctx, { kind: 'self' }) }), ['staff', 'verification']);
-  const [done, setDone] = useState<StaffAttendanceRecord | null>(null);
+  const [saved, setSaved] = useState<StaffAttendanceRecord | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The screen saw the trainer unmarked: their own mark made after that (a tap racing voice) is shown, not left for Home. */
+  const [sawUnmarked, setSawUnmarked] = useState(false);
+  if (data && !data.record && !sawUnmarked) setSawUnmarked(true);
+  // Voice saved it (D-141): shown as this screen's own result, also when the screen mounts after voice's navigation.
+  useVoiceBusEvent('self_marked', (e) => setSaved(e.record), { replayMissed: true, replayBound: (e) => e.type === 'navigate' });
+  const done = saved ?? (sawUnmarked && data?.record?.source === 'self' ? data.record : null);
 
   const blocked = !j.staff.selfCanMark;
   useEffect(() => {
@@ -63,8 +70,9 @@ export function SelfAttendanceScreen() {
     setBusy(true);
     const result = await staffAttendance.markSelf(ctx);
     setBusy(false);
-    if (result.ok) setDone(result.value);
-    else router.replace(routes.home);
+    if (result.ok) setSaved(result.value);
+    // Already marked (voice saved it a moment ago): the refreshed record shows as the result, or Home when it is not their own.
+    else if (result.error !== 'already_marked') router.replace(routes.home);
   };
   const now = ctx.clock.now();
   const verifiedText = j.verification.location !== 'none' && j.verification.face ? t('self.verified') : j.verification.face ? t('self.verifiedIdentity') : t('self.verifiedLocation');

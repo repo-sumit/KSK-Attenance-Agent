@@ -11,7 +11,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 import { StatusChip } from '@/components/ui/StatusChip';
 import { ScreenLayout } from '@/components/shell/ScreenLayout';
 import { AppHeader } from '@/features/shell/AppHeader';
-import { parseSessionKey, toSessionKey } from '@/domain/attendance';
+import { awaitsSync, parseSessionKey, toSessionKey } from '@/domain/attendance';
 import { countMarks } from '@/domain/marking';
 import { AttendanceSummary } from '@/components/ui/AttendanceSummary';
 import { InlineNote } from '@/components/ui/InlineNote';
@@ -26,6 +26,9 @@ import { batchTitle, batchWithTrade, markLabel, statusOf, summaryLabels } from '
 import { useSessionLabel } from '../useSessionLabel';
 import styles from './Record.module.css';
 import { useAttendanceRoot } from '../useAttendanceRoot';
+
+/** Stands in for the submitter's name while the status sentence is filled, so the name can stay an element. */
+const NAME = '\u0000';
 
 /**
  * Read-only record of a submitted session. Instructors see the lock; the
@@ -92,11 +95,44 @@ export function RecordScreen() {
     );
   }
 
-  const pending = submission.syncState !== 'synced';
+  // A record the server refused (someone else submitted first) shows only while the server's copy cannot be read.
+  const rejected = submission.syncState === 'rejected';
+  const pending = awaitsSync(submission);
+  const synced = submission.syncState === 'synced';
   const by = ctx.data.staff.find((s) => s.id === submission.markedBy)?.name ?? '';
   const time = format.time(submission.deviceTimestamp);
-  const status = pending ? t('record.pending') : !isToday ? t('record.submittedOn', { date: format.dayMonth(submission.address.date), time, name: by }) : ctx.journey.corrections ? t('record.submittedBy', { time, name: by }) : t('record.submitted', { time });
-  const note = pending && ctx.journey.corrections ? t('record.notePending') : !ctx.journey.corrections ? t('record.noteInstructor') : isToday ? t('record.notePrincipalToday') : t('record.notePrincipalPast');
+  // The name stands in as a slot so it alone is set as Latin master data; the sentence around it is translated text.
+  const statusText = rejected
+    ? t('sync.rejected')
+    : pending
+      ? t('record.pending')
+      : !isToday
+        ? t('record.submittedOn', { date: format.dayMonth(submission.address.date), time, name: NAME })
+        : ctx.journey.corrections
+          ? t('record.submittedBy', { time, name: NAME })
+          : t('record.submitted', { time });
+  const [before, after] = statusText.split(NAME);
+  const status = (
+    <>
+      {before}
+      {after !== undefined && (
+        <>
+          <Latin>{by}</Latin>
+          {after}
+        </>
+      )}
+    </>
+  );
+  const note = rejected
+    ? null
+    : pending && ctx.journey.corrections
+      ? t('record.notePending')
+      : !ctx.journey.corrections
+        ? t('record.noteInstructor')
+        : isToday
+          ? t('record.notePrincipalToday')
+          : t('record.notePrincipalPast');
+  const strip = rejected ? { tone: 'warning' as const, icon: 'alert' as const } : pending ? { tone: 'warning' as const, icon: 'cloud-upload' as const } : { tone: 'success' as const, icon: 'lock' as const };
   const counts = countMarks(detail.marks);
 
   return (
@@ -109,18 +145,18 @@ export function RecordScreen() {
       top={
         <div className={styles.top}>
           {daySwitch}
-          <Banner layout="strip" tone={pending ? 'warning' : 'success'} icon={pending ? 'cloud-upload' : 'lock'}>
-            <Latin>{status}</Latin>
+          <Banner layout="strip" tone={strip.tone} icon={strip.icon}>
+            {status}
           </Banner>
           <AttendanceSummary counts={counts} statuses={ctx.journey.marking.statuses} labels={summaryLabels(t, format)} />
-          <InlineNote>{note}</InlineNote>
+          {note && <InlineNote>{note}</InlineNote>}
         </div>
       }
     >
       <ol className={styles.list}>
         {detail.students.map((student) => {
           const mark = detail.marks[student.id];
-          const correctable = canCorrect && !pending && mark?.status !== 'ojt';
+          const correctable = canCorrect && synced && mark?.status !== 'ojt';
           const content = (
             <>
               <span className={cx(styles.roll, 'tnum')}>{student.rollNo}</span>

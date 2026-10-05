@@ -16,6 +16,8 @@ interface TradeGroupsProps<T> {
   readonly as?: 'div' | 'ul';
   /** 3 under a page section (Reports' batches); 2 when the trades are the page's own sections (Download). */
   readonly level?: 2 | 3;
+  /** An optional control on each group's label line, given that trade and its items in this list. */
+  readonly action?: (trade: Trade, items: readonly T[]) => ReactNode;
 }
 
 /**
@@ -24,12 +26,12 @@ interface TradeGroupsProps<T> {
  * page's top level) and one divided list card per trade. Reports' batches and
  * the Download screen use it.
  */
-export function TradeGroups<T>({ trades, items, tradeId, children, idPrefix, as = 'div', level = 3 }: TradeGroupsProps<T>) {
+export function TradeGroups<T>({ trades, items, tradeId, children, idPrefix, as = 'div', level = 3, action }: TradeGroupsProps<T>) {
   return trades.map((trade) => {
     const mine = items.filter((item) => tradeId(item) === trade.id);
     if (!mine.length) return null;
     return (
-      <Section key={trade.id} id={`${idPrefix}-${trade.id}`} level={level} variant="label" title={<Latin>{trade.name}</Latin>}>
+      <Section key={trade.id} id={`${idPrefix}-${trade.id}`} level={level} variant="label" title={<Latin>{trade.name}</Latin>} action={action?.(trade, mine)}>
         <Card divided as={as}>
           {mine.map(children)}
         </Card>

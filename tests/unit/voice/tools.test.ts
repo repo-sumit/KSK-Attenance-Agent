@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FlowPlan } from '@/domain/voice/plan';
 import { buildTools } from '@/services/voice/tools';
+import { CAPS, PRINCIPAL_PLAN, voicePlan } from '../../helpers/voice-view';
 
 const PLAN: FlowPlan = {
   selection: 'trade_picker', tradeStep: true, slotWords: 'once',
@@ -9,17 +10,21 @@ const PLAN: FlowPlan = {
   defaultStatus: 'present', startStyle: 'exceptions', rollCallSwitch: true,
   statuses: ['present', 'absent'], ojtVisible: false,
   details: { half: false, leaveType: false, leaveDays: false },
-  navTargets: ['home', 'reports'], languages: ['en', 'mr'], openingLanguage: 'en', timeFencing: true,
+  languages: ['en', 'mr'], openingLanguage: 'en', timeFencing: true,
 };
-const names = (p: FlowPlan) => buildTools(p).map((t) => t.name);
-const tool = (p: FlowPlan, n: string) => buildTools(p).find((t) => t.name === n)!;
+const names = (p: FlowPlan) => buildTools(voicePlan(p)).map((t) => t.name);
+const tool = (p: FlowPlan, n: string) => buildTools(voicePlan(p)).find((t) => t.name === n)!;
 
 describe('buildTools', () => {
   it('declares every tool BLOCKING', () => {
-    expect(buildTools(PLAN).every((t) => t.behavior === 'BLOCKING')).toBe(true);
+    expect(buildTools(voicePlan(PLAN)).every((t) => t.behavior === 'BLOCKING')).toBe(true);
   });
   it('Maharashtra open mapping: the full set', () => {
-    expect(names(PLAN)).toEqual(['get_trades', 'select_trade', 'select_batch', 'start_roll_call', 'mark_attendance', 'set_student_status', 'skip_student', 'mark_remaining', 'go_back', 'get_status', 'verify_again', 'navigate', 'submit_attendance', 'end_voice_session']);
+    expect(names(PLAN)).toEqual([
+      'get_trades', 'select_trade', 'select_batch', 'start_roll_call', 'mark_attendance', 'set_student_status', 'skip_student', 'mark_remaining', 'go_back', 'get_status', 'verify_again',
+      'get_reports_overview', 'get_batch_report', 'get_student_report', 'get_at_risk', 'show_report', 'download_register',
+      'get_my_attendance', 'mark_my_attendance', 'navigate', 'get_announcements', 'submit_attendance', 'end_voice_session',
+    ]);
   });
   it('a disabled feature has no tool', () => {
     const p = { ...PLAN, tradeStep: false, rollCallSwitch: false, verification: { location: 'none' as const, face: false, required: false } };
@@ -40,7 +45,7 @@ describe('buildTools', () => {
     expect(props.leave_days.type).toBe('INTEGER');
   });
   it('confirmations are codes, never booleans', () => {
-    const json = JSON.stringify(buildTools(PLAN));
+    const json = JSON.stringify(buildTools(voicePlan(PLAN)));
     expect(json).not.toContain('confirmed');
     expect(tool(PLAN, 'submit_attendance').parameters!.properties.confirm_token.type).toBe('STRING');
     expect(tool(PLAN, 'submit_attendance').parameters!.required).toBeUndefined();
@@ -75,7 +80,98 @@ describe('buildTools', () => {
   it('argument-less tools declare no parameters; navigate offers the plan targets', () => {
     expect(tool(PLAN, 'get_status').parameters).toBeUndefined();
     expect(tool(PLAN, 'end_voice_session').parameters).toBeUndefined();
-    expect(tool(PLAN, 'navigate').parameters!.properties.to.enum).toEqual(['home', 'reports']);
+    expect(tool(PLAN, 'navigate').parameters!.properties.to.enum).toEqual(['home', 'reports', 'my_attendance', 'offline', 'announcements']);
     expect(tool(PLAN, 'go_back').parameters!.properties.to.enum).toEqual(['trade', 'batch']);
+  });
+
+  it('the principal (D-139): no marking tool, only today\'s state, reports, staff, the screens, announcements and the end', () => {
+    const declared = buildTools(PRINCIPAL_PLAN);
+    expect(declared.map((t) => t.name)).toEqual([
+      'get_status', 'get_reports_overview', 'get_batch_report', 'get_student_report', 'get_at_risk', 'show_report', 'download_register',
+      'get_staff_today', 'mark_staff', 'navigate', 'get_announcements', 'end_voice_session',
+    ]);
+    expect(declared.every((t) => t.behavior === 'BLOCKING')).toBe(true);
+    const nav = declared.find((t) => t.name === 'navigate')!;
+    expect(nav.parameters!.properties.to.enum).toEqual(['home', 'attendance', 'reports', 'staff_attendance', 'announcements']);
+    expect(nav.description).toBe('Open a screen the trainer asks for: Home, Attendance, Reports, Staff attendance or Announcements.');
+    expect(declared.find((t) => t.name === 'get_status')!.description).toMatch(/^Today's attendance at the institute/);
+    expect(JSON.stringify(declared)).not.toMatch(/select_batch|select_trade|get_trades|mark_my_attendance/);
+    expect(declared.filter((t) => JSON.stringify(t).includes('confirm_token')).map((t) => t.name)).toEqual(['mark_staff']); // the one write asks first
+  });
+  it('own and staff attendance (D-141): declared only with their capability; mark_staff takes the person, a state status and a code', () => {
+    const own = buildTools(voicePlan(PLAN)).map((t) => t.name);
+    expect(own).toEqual(expect.arrayContaining(['get_my_attendance', 'mark_my_attendance']));
+    expect(own).not.toEqual(expect.arrayContaining([expect.stringMatching(/get_staff_today|mark_staff/)]));
+    expect(tool(PLAN, 'mark_my_attendance').parameters).toBeUndefined();
+    expect(tool(PLAN, 'mark_my_attendance').description).toContain('runs the same check as the screen');
+    expect(buildTools(voicePlan(PLAN, { ...CAPS, selfAttendance: false })).map((t) => t.name)).not.toEqual(expect.arrayContaining([expect.stringMatching(/my_attendance$/)]));
+    const mark = buildTools(PRINCIPAL_PLAN).find((t) => t.name === 'mark_staff')!;
+    expect(mark.parameters!.required).toEqual(['staff', 'status']);
+    expect(mark.parameters!.properties.status.enum).toEqual(['PRESENT', 'ABSENT']);
+    expect(Object.keys(mark.parameters!.properties)).toEqual(['staff', 'status', 'confirm_token']);
+    const noMarking = buildTools({ ...PRINCIPAL_PLAN, capabilities: { ...PRINCIPAL_PLAN.capabilities, staffMarking: false, staffStatuses: [] } }).map((t) => t.name);
+    expect(noMarking).not.toEqual(expect.arrayContaining([expect.stringMatching(/staff_today|mark_staff/)]));
+  });
+  it('report tools (D-140): read-only, declared only with reports; download_register only with the download', () => {
+    const report = (n: string) => tool(PLAN, n);
+    expect(report('get_reports_overview').parameters).toBeUndefined();
+    expect(report('get_reports_overview').description).toContain("the trainer's batches");
+    expect(buildTools(PRINCIPAL_PLAN).find((t) => t.name === 'get_reports_overview')!.description).toContain('every batch of the institute');
+    expect(report('get_batch_report').parameters!.required).toEqual(['batch']);
+    expect(report('get_student_report').parameters!.required).toEqual(['student']);
+    expect(Object.keys(report('get_student_report').parameters!.properties)).toEqual(['student', 'batch']);
+    expect(report('get_at_risk').parameters!.required).toBeUndefined();
+    expect(report('show_report').parameters).toBeUndefined();
+    expect(report('download_register').parameters!.properties.month.enum).toEqual(['THIS_MONTH', 'LAST_MONTH']);
+    // the month defaults to this month (the handler's own default), so it is optional, as the prompt says
+    expect(report('download_register').parameters!.required).toEqual(['target']);
+    expect(report('download_register').parameters!.properties.month.description).toBe('Which month: this month (to date; the default when the trainer does not say) or last month');
+    const reportNames = ['get_reports_overview', 'get_batch_report', 'get_student_report', 'get_at_risk', 'show_report', 'download_register'];
+    expect(buildTools(voicePlan(PLAN, { ...CAPS, reports: null, downloads: false })).map((t) => t.name)).not.toEqual(expect.arrayContaining([expect.stringMatching(new RegExp(reportNames.join('|')))]));
+    const noPdf = buildTools(voicePlan(PLAN, { ...CAPS, downloads: false })).map((t) => t.name);
+    expect(noPdf).toContain('get_at_risk');
+    expect(noPdf).not.toContain('download_register');
+    expect(JSON.stringify(reportNames.map(report))).not.toMatch(/confirm_token/);
+  });
+  it('report tools follow the report sections the screen has: batches, at-risk, the institute headline', () => {
+    const declared = (reportSections: { batches: boolean; atRisk: boolean; institute: boolean }, downloads = reportSections.batches) =>
+      buildTools(voicePlan(PLAN, { ...CAPS, reportSections, downloads })).map((t) => t.name).filter((n) => /report|at_risk|register/.test(n));
+    expect(declared({ batches: true, atRisk: true, institute: false })).toEqual(['get_reports_overview', 'get_batch_report', 'get_student_report', 'get_at_risk', 'show_report', 'download_register']);
+    expect(declared({ batches: true, atRisk: false, institute: false })).toEqual(['get_reports_overview', 'get_batch_report', 'get_student_report', 'show_report', 'download_register']);
+    expect(declared({ batches: false, atRisk: true, institute: false })).toEqual(['get_student_report', 'get_at_risk', 'show_report']);
+    const principal = (reportSections: { batches: boolean; atRisk: boolean; institute: boolean }) =>
+      buildTools({ ...PRINCIPAL_PLAN, capabilities: { ...PRINCIPAL_PLAN.capabilities, reportSections, downloads: reportSections.batches } });
+    const headline = principal({ batches: true, atRisk: true, institute: true }).find((t) => t.name === 'get_reports_overview')!;
+    expect(headline.description).toContain("with the institute's average and staff presence");
+    const noHeadline = principal({ batches: true, atRisk: true, institute: false }).find((t) => t.name === 'get_reports_overview')!;
+    expect(noHeadline.description).toContain('every batch of the institute');
+    expect(noHeadline.description).not.toContain("institute's average");
+    expect(principal({ batches: false, atRisk: false, institute: true }).map((t) => t.name).filter((n) => /report|at_risk|register/.test(n))).toEqual(['get_reports_overview', 'show_report']);
+  });
+  it('get_reports_overview\'s description names students at risk only with the at-risk section (fix round 1)', () => {
+    const overview = (reportSections: { batches: boolean; atRisk: boolean; institute: boolean }) =>
+      buildTools(voicePlan(PLAN, { ...CAPS, reportSections })).find((t) => t.name === 'get_reports_overview')!.description;
+    expect(overview({ batches: true, atRisk: true, institute: false })).toBe(
+      'The attendance report of the trainer\'s batches: each batch\'s average over the report window, students at risk, this month against last month. Use it for "how are my batches doing?", "report batao", "how is the institute doing?".',
+    );
+    expect(overview({ batches: true, atRisk: false, institute: false })).toBe(
+      'The attendance report of the trainer\'s batches: each batch\'s average over the report window, this month against last month. Use it for "how are my batches doing?", "report batao", "how is the institute doing?".',
+    );
+    const principal = (reportSections: { batches: boolean; atRisk: boolean; institute: boolean }) =>
+      buildTools({ ...PRINCIPAL_PLAN, capabilities: { ...PRINCIPAL_PLAN.capabilities, reportSections, downloads: reportSections.batches } }).find((t) => t.name === 'get_reports_overview')!.description;
+    expect(principal({ batches: true, atRisk: true, institute: true })).toMatch(/students at risk/);
+    expect(principal({ batches: true, atRisk: false, institute: true })).not.toMatch(/at risk/);
+    expect(principal({ batches: false, atRisk: false, institute: true })).not.toMatch(/at risk|each batch's average/);
+  });
+  it('get_trades is not needed at the start: the first [APP] message already names the trades', () => {
+    const trades = tool(PLAN, 'get_trades').description;
+    expect(trades).not.toMatch(/call it at the start/i);
+    expect(trades).toBe('List the trades of this institute with their ids. Not needed at the start: the first [APP] message already names the trades to ask about. Use it when the trainer asks which trades there are.');
+  });
+  it('navigate names every screen of the plan; get_announcements exists only with announcements', () => {
+    expect(tool(PLAN, 'navigate').description).toBe('Open a screen the trainer asks for: Home, Reports, My attendance, Offline data or Announcements. Never use it to choose a trade or batch.');
+    expect(tool(PLAN, 'get_announcements').parameters).toBeUndefined();
+    const quiet = buildTools(voicePlan(PLAN, { ...CAPS, announcements: false, navTargets: ['home', 'reports'] })).map((t) => t.name);
+    expect(quiet).not.toContain('get_announcements');
   });
 });

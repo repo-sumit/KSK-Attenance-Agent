@@ -12,11 +12,11 @@ import { VoiceAnnouncer } from './VoiceAnnouncer';
 import { ScreenSync } from './useScreenSync';
 import { VoiceFloat } from './VoiceFloat';
 
-/** Voice mode is on from start() until the trainer stops it or the session ends itself (an error stays on, to explain). */
+/** Voice Agent is on from start() until the trainer stops it or the session ends itself (an error stays on, to explain). */
 const isOn = (state: VoiceState | null): state is VoiceState => state !== null && state.status !== 'idle' && state.status !== 'ended';
 
 /**
- * Voice mode for the signed-in screens (D-085). Mounted inside SessionGate, so it exists only with a ready
+ * Voice Agent for the signed-in screens (D-085). Mounted inside SessionGate, so it exists only with a ready
  * session and lives across navigation. It owns the one VoiceSession, offers the voice API to the screens, renders
  * the dock into every ScreenLayout, follows the Action Bus, reports screen changes and the WebView's visibility, and
  * announces errors and the end of voice from regions that outlive the dock (VoiceAnnouncer).
@@ -53,9 +53,10 @@ export function VoiceProvider({ children }: { readonly children: ReactNode }) {
   const watchOnline = useCallback((onChange: () => void) => connectivity.subscribe(() => onChange()), [connectivity]);
   const online = useSyncExternalStore(watchOnline, () => connectivity.isOnline(), () => true);
 
-  const planned = useMemo(() => services.voice.plan(ctx, language) !== null, [services, ctx, language]);
+  const plan = useMemo(() => services.voice.plan(ctx, language), [services, ctx, language]);
+  const marks = !!plan?.marking;
   // Scripted voice (demo, E2E) needs no microphone; live voice needs a secure context, getUserMedia and AudioWorklet.
-  const available = planned && (simulation.get().voice === 'scripted' || audioSupported());
+  const available = plan !== null && (simulation.get().voice === 'scripted' || audioSupported());
 
   // Synchronous from the click: the session creates and resumes its AudioContexts before anything is awaited.
   // Voice can start on any screen (D-133): the session hears which one before its kickoff reads the flow (the
@@ -71,6 +72,7 @@ export function VoiceProvider({ children }: { readonly children: ReactNode }) {
   const api = useMemo<VoiceApi>(
     () => ({
       available,
+      marks,
       online,
       state,
       start,
@@ -81,7 +83,7 @@ export function VoiceProvider({ children }: { readonly children: ReactNode }) {
       setPushToTalk: (on) => session?.setPushToTalk(on),
       talk: (down) => session?.talk(down),
     }),
-    [available, online, state, start, session],
+    [available, marks, online, state, start, session],
   );
 
   useActionBus({ running: state !== null && state.status !== 'error', stop: api.stop });

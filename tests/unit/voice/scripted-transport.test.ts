@@ -3,6 +3,7 @@ import { liveConfig, type LiveCallbacks, type LiveEvent, type LiveSetup } from '
 import { ScriptedLiveTransport, SilentAudio } from '@/services/simulated/voice';
 import type { FlowPlan } from '@/domain/voice/plan';
 import { buildTools, type ToolDeclaration } from '@/services/voice/tools';
+import { voicePlan } from '../../helpers/voice-view';
 
 const TOOL: ToolDeclaration = { name: 'get_status', description: 'Where are we', behavior: 'BLOCKING' };
 const SETUP: LiveSetup = { model: 'gemini-3.8-live', systemInstruction: 'You are a helper.', tools: [TOOL], voiceName: 'Kore' };
@@ -13,7 +14,7 @@ const PLAN: FlowPlan = {
   defaultStatus: 'present', startStyle: 'exceptions', rollCallSwitch: true,
   statuses: ['present', 'absent'], ojtVisible: false,
   details: { half: false, leaveType: false, leaveDays: false },
-  navTargets: ['home', 'reports'], languages: ['en', 'mr'], openingLanguage: 'en', timeFencing: true,
+  languages: ['en', 'mr'], openingLanguage: 'en', timeFencing: true,
 };
 
 function callbacks(): LiveCallbacks & { onEvent: Mock<(e: LiveEvent) => void>; onClose: Mock<(code: number, reason: string) => void> } {
@@ -136,7 +137,7 @@ describe('liveConfig', () => {
     expect(JSON.stringify(liveConfig({ ...SETUP, resumeHandle: 'h-1' }))).not.toContain('transparent');
   });
   it('declares every function in liveConfig(setup) as BLOCKING, in one tool group (the real tool set)', () => {
-    const setup: LiveSetup = { ...SETUP, tools: buildTools(PLAN) };
+    const setup: LiveSetup = { ...SETUP, tools: buildTools(voicePlan(PLAN)) };
     const tools = liveConfig(setup).tools as Array<{ functionDeclarations: ToolDeclaration[] }>;
     expect(tools).toHaveLength(1);
     const declared = tools[0]!.functionDeclarations;

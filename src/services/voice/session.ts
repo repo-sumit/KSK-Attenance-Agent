@@ -5,7 +5,7 @@
  * liveClient open, onMessage, shutdown and teardownAudio (MVP-02 §5–§9, MVP-03). No React: the UI reads getState().
  */
 import type { VerificationEvent } from '../verification';
-import { limitEvent, PAUSE_EVENT, RESUME_EVENT } from './app-events';
+import { limitEvent, PAUSE_EVENT } from './app-events';
 import type { AudioIO } from './audio/types';
 import { captionsAfter } from './captions';
 import type { ScreenSignal } from './executor';
@@ -53,6 +53,8 @@ export class VoiceSession {
   private intervals: ReturnType<typeof setInterval>[] = [];
   private readonly timeouts = new Set<ReturnType<typeof setTimeout>>();
   private hiddenTimer: ReturnType<typeof setTimeout> | undefined;
+  /** When the last start click happened, until its first model audio is logged (D-138); null otherwise. */
+  private startedAt: number | null = null;
 
   constructor(private readonly deps: VoiceSessionDeps) {
     this.timers = deps.timers ?? systemTimers();
@@ -101,6 +103,7 @@ export class VoiceSession {
     this.link.takeHandle(); // a fresh conversation
     this.tools.reset(); // nothing of the last conversation counts in this one
     this.failedConnects = 0;
+    this.startedAt = this.timers.now();
     this.begin('start', { status: 'connecting', captions: [], focus: null });
   }
 
@@ -127,7 +130,7 @@ export class VoiceSession {
     this.pauseFor('user');
   }
 
-  /** From a click: mic on, the agent re-reads the state. */
+  /** From a click: mic on, the agent re-reads the state (the executor's resume text). */
   resume(): void {
     if (this.state.status !== 'paused') return;
     this.pausedBy = null;
@@ -135,7 +138,7 @@ export class VoiceSession {
     this.set({ status: 'listening' });
     this.syncMic();
     this.deps.usage.activity(this.timers.now());
-    this.link.sendText(RESUME_EVENT);
+    this.link.sendText(this.deps.executor.resumeText());
   }
 
   /**
@@ -215,6 +218,8 @@ export class VoiceSession {
   private async open(kind: 'start' | 'reconnect', my: number): Promise<void> {
     const { deps } = this;
     if (!deps.isOnline()) return this.stop('offline');
+    // The transport module downloads while the mic starts (D-138); a failed load here is retried by link.open.
+    try { deps.transport().catch(() => undefined); } catch { /* link.open loads it again and logs the failure */ }
     const usage = await deps.usage.canStart();
     if (my !== this.attempt) return;
     if (!usage.ok) return this.stop('daily_limit');
@@ -225,8 +230,9 @@ export class VoiceSession {
     if (my !== this.attempt || opened === 'stale') return;
     if (opened !== 'ok') return opened === 'connect_failed' ? this.lose('connect_failed') : this.stop(opened);
     // On the tool queue, after the screen and verification hooks already queued (one queued while Reconnect showed
-    // may wait behind a slow call of the dropped connection): the kickoff reads the flow those hooks moved.
-    const kickoff = await this.tools.after(() => deps.executor.kickoff(kind, deps.languageName));
+    // may wait behind a slow call of the dropped connection): the kickoff reads the flow those hooks moved. A Reconnect
+    // passes the question still waiting for the trainer, so it is asked again with a code for the new connection.
+    const kickoff = await this.tools.after(() => deps.executor.kickoff(kind, deps.languageName, kind === 'reconnect' ? this.tools.pendingQuestion : null));
     if (my !== this.attempt) return;
     this.link.sendText(kickoff);
     this.set({ status: 'listening', minutesLeft: this.minutesLeft() });
@@ -248,6 +254,10 @@ export class VoiceSession {
     this.turns.observe(e);
     if (e.inputText || e.inputFinished) this.deps.usage.activity(now);
     if (e.inputText) this.userSpeaking = true;
+    if (e.audio.length && !e.interrupted && this.startedAt !== null) { // flushed audio was never heard: not the first reply
+      this.deps.log(`first audio ${Math.round(now - this.startedAt)} ms after start`);
+      this.startedAt = null;
+    }
     if ((e.audio.length && !paused) || e.toolCalls?.length) this.modelBusy = true; // not the output transcript: it lags the audio
     if (e.turnComplete) this.userSpeaking = this.modelBusy = false;
     if (e.resumption?.resumable && e.resumption.handle) this.link.keepHandle(e.resumption.handle);
@@ -376,6 +386,7 @@ export class VoiceSession {
 
   /** Teardown on every path: timers, the connection, both AudioContexts (audio.close), the usage write. */
   private halt(): void {
+    this.startedAt = null; // a later Reconnect is not the start: its first audio is not timed
     for (const id of this.intervals.splice(0)) this.timers.clearInterval(id);
     for (const id of this.timeouts) this.timers.clearTimeout(id);
     this.timeouts.clear();

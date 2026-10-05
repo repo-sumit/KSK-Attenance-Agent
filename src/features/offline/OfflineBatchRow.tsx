@@ -20,7 +20,7 @@ interface OfflineBatchRowProps {
 
 /**
  * One downloaded batch (brief §5) in two lines (RPT-5): its name, then its
- * state (ready offline / refresh needed / waiting to sync) beside when it was
+ * state (ready offline / refresh needed / waiting to sync / not saved) beside when it was
  * updated (the time today, the date on an earlier day), and its own refresh.
  */
 export function OfflineBatchRow({ row, all, canRefresh }: OfflineBatchRowProps) {
@@ -42,9 +42,11 @@ export function OfflineBatchRow({ row, all, canRefresh }: OfflineBatchRowProps) 
   const stale = row.stale && state === 'idle';
   const status = row.pendingSync
     ? { tone: 'warning' as const, icon: 'cloud-upload' as const, text: t('offline.waitingRow', { count: row.pendingSync }) }
-    : stale
-      ? { tone: 'warning' as const, icon: 'alert' as const, text: t('offline.refreshNeeded') }
-      : { tone: 'success' as const, icon: 'circle-check' as const, text: t('offline.ready') };
+    : row.rejected
+      ? { tone: 'warning' as const, icon: 'alert' as const, text: t('sync.rejected') }
+      : stale
+        ? { tone: 'warning' as const, icon: 'alert' as const, text: t('offline.refreshNeeded') }
+        : { tone: 'success' as const, icon: 'circle-check' as const, text: t('offline.ready') };
 
   return (
     <li className={cx(styles.pack, stale && styles.packStale)}>

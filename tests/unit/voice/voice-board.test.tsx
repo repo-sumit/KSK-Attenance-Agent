@@ -2,7 +2,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from '@/components/ui/Toast';
-import { compileFlowPlan } from '@/domain/voice/plan';
+import { compileVoicePlan } from '@/domain/voice/plan';
 import { AttendanceBoard } from '@/features/attendance/AttendanceBoard';
 import { I18nProvider } from '@/hooks/i18n';
 import { ServicesProvider } from '@/hooks/services';
@@ -27,12 +27,13 @@ async function switcher() {
   const env = setup({ voice: { enabled: true }, mapping: { model: 'trade' }, verification: { geoMode: 'off', face: false }, time: { fencing: false } });
   const ctx = await signIn(env.app, 'TR-10455');
   signed.ctx = ctx;
-  const plan = compileFlowPlan(ctx, 'en')!;
-  expect(plan.selection).toBe('trade_switcher');
+  const plan = compileVoicePlan(ctx, 'en')!;
+  expect(plan.marking!.selection).toBe('trade_switcher');
   const turns = new TrainerTurns();
   const ex = createExecutor({
     ctx, plan, bus: env.app.services.voiceBus,
     attendance: env.app.services.attendance, verification: env.app.services.verification, drafts: env.app.services.drafts,
+    announcements: env.app.services.announcements, staffAttendance: env.app.services.staffAttendance, reports: env.app.services.reports,
     isOnline: () => true, nowMs: () => env.clock.now().getTime(), speechSeq: () => turns.counts.speechSeq, turnSeq: () => turns.counts.turnSeq,
     spokeAtTurn: () => turns.counts.spokeAtTurn, generation: () => 1, entropy: () => 0.42,
   });

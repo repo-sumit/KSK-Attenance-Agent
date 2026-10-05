@@ -182,7 +182,7 @@ describe('MockFaceMatchService (matching is simulated)', () => {
   const setup = (patch = {}) => {
     const saved: FaceEnrolment[] = [];
     const sim = new StaticSimulationSource({ ...DEFAULT_SIMULATION, speed: 0, ...patch });
-    const repo = { get: async (id: string) => saved.find((e) => e.staffId === id), save: async (e: FaceEnrolment) => void saved.push(e), count: async () => saved.length };
+    const repo = { get: async (id: string) => saved.find((e) => e.staffId === id), save: async (e: FaceEnrolment) => void saved.push(e), remove: async () => {}, count: async () => saved.length };
     return { saved, sim, match: new MockFaceMatchService(sim, repo, clock) };
   };
   const frames = (n: number): CapturedFrame[] => Array.from({ length: n }, () => ({ source: 'device', image: new Blob(['x']), width: 1, height: 1, capturedAt: '' }));

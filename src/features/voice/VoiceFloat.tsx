@@ -1,15 +1,21 @@
 'use client';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
+import { preconnect } from 'react-dom';
 import { useDockAnchor } from '@/components/shell/DockAnchor';
 import { Icon } from '@/components/ui/icons/Icon';
 import { useI18n } from '@/hooks/i18n';
+import { useServices } from '@/hooks/services';
 import { useVoice } from '@/hooks/voice';
 import { cx } from '@/lib/cx';
+import { GEMINI_LIVE_ORIGIN } from '@/services/voice/live/origin';
 import { VoiceCard } from './VoiceCard';
 import { dockStatus } from './VoiceDockParts';
 import styles from './VoiceFloat.module.css';
 
 type Mode = 'button' | 'card';
+
+/** The voice services whose start-up was already prefetched: once per page load (one container per page load). */
+const prefetched = new WeakSet<object>();
 
 /** Where the float sits, measured from the screen's dock anchor (DockAnchor): CSS variables read by the stylesheet. */
 interface Place {
@@ -20,8 +26,8 @@ interface Place {
 }
 
 /**
- * Voice mode's one floating element (D-133), rendered once by VoiceProvider so it keeps its state across routes.
- * Idle: a round mic button at the bottom-right (an extended "Voice mode" pill from 600px), shown while voice is
+ * Voice Agent's one floating element (D-133), rendered once by VoiceProvider so it keeps its state across routes.
+ * Idle: a round mic button at the bottom-right (an extended "Voice Agent" pill from 600px), shown while voice is
  * available; the tap starts voice synchronously, inside the click, so the session creates its AudioContexts there.
  * While voice runs it grows into the voice card; Minimize shrinks the card back to a round button that shows the
  * live status (its name is the status text) while voice keeps running, and a tap opens the card again. An error
@@ -30,6 +36,7 @@ interface Place {
  */
 export function VoiceFloat() {
   const voice = useVoice();
+  const voiceService = useServices().voice;
   const { t } = useI18n();
   const anchor = useDockAnchor();
   const hintId = useId();
@@ -64,6 +71,19 @@ export function VoiceFloat() {
       setMinimized(false);
     }
   }
+
+  // D-138: once the idle button shows (voice available, online), warm the start: the Gemini origin is preconnected
+  // and the Live transport module is fetched in an idle moment, once per page load. Only when a live connection can
+  // follow (the service says; scripted voice in demos and E2E never connects to Gemini).
+  const warm = showButton && voice.online;
+  useEffect(() => {
+    if (!warm || prefetched.has(voiceService) || !voiceService.canWarm()) return;
+    prefetched.add(voiceService);
+    preconnect(GEMINI_LIVE_ORIGIN, { crossOrigin: 'anonymous' });
+    const run = () => voiceService.prefetch();
+    if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(run);
+    else window.setTimeout(run, 2000);
+  }, [warm, voiceService]);
 
   // Focus follows minimize and expand: to the round button, then back to the card's Minimize.
   useEffect(() => {
@@ -143,7 +163,7 @@ export function VoiceFloat() {
             <span className={styles.fabLabel}>{t('voice.mode')}</span>
           </button>
           <span id={hintId} className="visually-hidden">
-            {voice.online ? t('voice.modeHint') : t('voice.unavailableOffline')}
+            {voice.online ? t(voice.marks ? 'voice.modeHint' : 'voice.modeHintAsk') : t('voice.unavailableOffline')}
           </span>
         </>
       )}

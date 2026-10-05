@@ -9,6 +9,9 @@ const qs = (params: Record<string, string | undefined>) => {
   return entries.length ? `?${new URLSearchParams(entries).toString()}` : '';
 };
 
+/** The detail report screen's pathname (its block and range travel in the query string). */
+const REPORT_VIEW = '/reports/view';
+
 export const routes = {
   root: '/',
   login: '/login',
@@ -28,8 +31,10 @@ export const routes = {
   correct: (key: string, studentId: string) => `/attendance/correct${qs({ s: key, student: studentId })}`,
   selfAttendance: '/me/attendance',
   reports: '/reports',
+  /** The detail report screen without a query (what a pathname is compared with). */
+  reportView: REPORT_VIEW,
   /** Detail reports (staff attendance, correction log) with a date range. */
-  report: (block: ReportBlock, range?: DateRangeKind, extra: { from?: string; to?: string } = {}) => `/reports/view${qs({ r: block, range, ...extra })}`,
+  report: (block: ReportBlock, range?: DateRangeKind, extra: { from?: string; to?: string } = {}) => `${REPORT_VIEW}${qs({ r: block, range, ...extra })}`,
   /** Offline data lives under Reports (D-056); /profile/offline redirects here. */
   offline: '/reports/offline',
   offlineDownload: '/reports/offline/download',

@@ -75,7 +75,7 @@ export interface Journey {
   readonly offline: { readonly enabled: boolean; readonly manualRefresh: boolean; readonly multiSelect: boolean; readonly maxBatches: number | null };
   readonly announcements: { readonly enabled: boolean };
   readonly language: { readonly available: readonly Language[]; readonly canSwitch: boolean };
-  /** Voice mode (extension, D-078–D-089). Exists only on the instructor home (D-087). */
+  /** Voice Agent (extension, D-078–D-089). Exists wherever it is enabled, the institute home included (D-139). */
   readonly voice: {
     readonly enabled: boolean;
     readonly languages: readonly Language[];
@@ -172,7 +172,7 @@ export function deriveJourney(config: AppConfiguration, user: StaffMember, acces
     announcements: { enabled: config.announcements.enabled },
     language: { available: config.i18n.languages, canSwitch: config.i18n.userSwitch && config.i18n.languages.length > 1 },
     voice: {
-      enabled: config.voice.enabled && !access.isInstituteWide && voiceLanguagesOk,
+      enabled: config.voice.enabled && voiceLanguagesOk,
       languages: config.voice.languages,
       defaultLanguage: config.voice.defaultLanguage,
       markingStyle: config.voice.markingStyle,

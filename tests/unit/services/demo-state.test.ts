@@ -7,7 +7,7 @@ import { DEFAULT_SIMULATION } from '@/services/simulation';
 const open = PRESETS.find((p) => p.id === 'open')!;
 const offline = PRESETS.find((p) => p.id === 'offline')!;
 
-/** A state as a browser stored it before voice mode: a preset applied, its configuration without `voice`, no presets version. */
+/** A state as a browser stored it before Voice Agent: a preset applied, its configuration without `voice`, no presets version. */
 const preVoice = (patch: Record<string, unknown> = {}) => ({
   version: 1,
   presetId: 'open',

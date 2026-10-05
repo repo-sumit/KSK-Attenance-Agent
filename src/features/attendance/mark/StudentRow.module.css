@@ -21,7 +21,7 @@
 .attention {
   box-shadow: inset 4px 0 0 var(--color-text-warning);
 }
-/* The student voice mode is on: an outline inside the row, no fill (rows are never tinted, D-070). */
+/* The student Voice Agent is on: an outline inside the row, no fill (rows are never tinted, D-070). */
 .current {
   outline: var(--border-selected) solid var(--color-border-focus);
   outline-offset: calc(0px - var(--border-selected));

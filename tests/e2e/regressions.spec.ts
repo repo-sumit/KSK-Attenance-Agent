@@ -98,7 +98,7 @@ test('motion really runs: CSS Modules keyframes resolve (refresh spin, skeleton 
   expect(await page.evaluate(() => document.getAnimations().length)).toBeGreaterThan(0);
   await expect(page.getByText('Updated just now')).toBeVisible();
   await page.goto('/reports');
-  const row = page.getByRole('region', { name: 'My batches' }).getByRole('button', { name: /Shift 1 · Unit 2/ });
+  const row = page.getByRole('region', { name: 'My batches' }).getByRole('button', { name: /Shift 1 · Unit 2.*students/ });
   await row.click();
   // The opened panel's animation names a keyframes rule that exists in the page (not a scoped name with no rule).
   const panelId = await row.getAttribute('aria-controls');

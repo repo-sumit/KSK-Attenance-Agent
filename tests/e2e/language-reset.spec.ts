@@ -49,3 +49,16 @@ test('Reset Demo restores the seeded story', async ({ page, consoleErrors }) => 
   await page.waitForURL(/\/home$/);
   await expect(page.locator('main').getByRole('link', { name: /Shift 1 · Unit 2/ })).toContainText('Mark attendance');
 });
+
+test('Demo panel: the Data row says where records live; a mock build has nothing to switch or reset on a server', async ({ page, consoleErrors }) => {
+  void consoleErrors;
+  await preset(page, 'batch');
+  await page.getByRole('button', { name: 'Open demo controls' }).click();
+  const panel = page.getByRole('dialog', { name: 'Demo controls' });
+  const data = panel.getByRole('region', { name: 'Data' });
+  await expect(data).toContainText('This device');
+  await expect(data).toContainText('Records stay on this device only.');
+  await expect(data.getByRole('radio')).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Reset shared demo data' })).toHaveCount(0);
+  await expect(panel.getByRole('button', { name: 'Reset demo' })).toBeVisible();
+});

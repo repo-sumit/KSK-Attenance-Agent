@@ -3,7 +3,7 @@
  * async, write-once where the domain demands it, append-only audit log — so the
  * rest of the app cannot tell them apart from real ones.
  */
-import { parseSessionKey, type AttendanceSubmission, type Correction, type StaffAttendanceRecord } from '@/domain/attendance';
+import { parseSessionKey, type AttendanceSubmission, type Correction, type StaffAttendanceRecord, type SyncState } from '@/domain/attendance';
 import type { InstituteId, MasterData } from '@/domain/entities';
 import { buildMasterData } from '@/data/mock/seeds';
 import { historicalStaffRecord, historicalSubmission, HISTORY_BATCH_IDS, subjectsWithHistory } from '@/data/mock/history';
@@ -151,6 +151,17 @@ export class MockAttendanceRepository implements AttendanceRepository {
     );
   }
 
+  async markSubmissionRejected(id: string) {
+    this.db.update(
+      'submissions',
+      (all) => {
+        const entry = Object.entries(all).find(([, s]) => s.id === id);
+        return entry ? { ...all, [entry[0]]: { ...entry[1], syncState: 'rejected' } } : all;
+      },
+      'attendance',
+    );
+  }
+
   async getDraft(sessionKey: string) {
     return this.db.read('drafts')[sessionKey];
   }
@@ -228,11 +239,17 @@ export class MockStaffAttendanceRepository implements StaffAttendanceRepository 
     return conflict ? err('already_marked') : ok(record);
   }
   async markSynced(id: string) {
+    this.setSyncState(id, 'synced');
+  }
+  async markRejected(id: string) {
+    this.setSyncState(id, 'rejected');
+  }
+  private setSyncState(id: string, syncState: SyncState) {
     this.db.update(
       'staff',
       (all) => {
         const entry = Object.entries(all).find(([, r]) => r.id === id);
-        return entry ? { ...all, [entry[0]]: { ...entry[1], syncState: 'synced' } } : all;
+        return entry ? { ...all, [entry[0]]: { ...entry[1], syncState } } : all;
       },
       'staff',
     );

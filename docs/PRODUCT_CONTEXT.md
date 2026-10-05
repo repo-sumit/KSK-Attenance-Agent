@@ -62,12 +62,13 @@ Navigation is **Home · Reports** for instructors and **Home · Attendance · Re
 
 ## What is simulated in this build
 
-This build uses **mock data and simulations only**. Nothing is sent to a server, and no real credentials exist.
+This build uses **fictional data and simulations only**, and no real credentials exist. The data lives either on the device (the mock) or, when the build is configured for it, in a **shared Supabase demo project** that every device sees live (D-143). That project has no real identity behind it and permissive demo security (D-144), so it must never hold real data; see `docs/SUPABASE.md`.
 
 - **Login** looks up mock institutes and staff. There is no password or OTP (PRD open question 1: `login.second_factor` supports only `none`).
 - **Face matching is simulated; the camera is real.** Face registration and the daily check open the phone's front camera and run a prototype movement check on the device (one face, in the oval, straight / turn left / turn right). Photos stay in memory for that screen and are never saved or sent. **No face is ever compared**: a demo switch decides "match" or "no match". Every face screen says so ("Prototype · photos are not saved · face matching is simulated"). **None of it may be presented as secure biometric verification or liveness detection** (D-048). On a machine without a camera the demo can simulate the camera too.
 - **Location** is simulated by default in the demo (inside, outside, denied, or no GPS). The demo panel can switch to the device's real GPS, which is used only to compute distance from the mock institute. Code records which it was (`source: 'device' | 'simulated'`).
-- **Server sync** is a simulated gateway that can be told to fail once.
+- **Server sync** is a simulated gateway that can be told to fail once on the mock; on the shared Supabase project the records really are pushed to it.
+- **Voice Agent** talks to Google's Gemini Live model when a key is configured; demos without a microphone or key use a scripted stand-in (D-106).
 - **Announcements** are six demo notices built relative to today. The PRD has no notices; they are an extension (D-054).
 - **Network time** is simulated too: loading states show for a moment and say what they are waiting for (D-059).
 

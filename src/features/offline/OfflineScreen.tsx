@@ -70,8 +70,8 @@ export function OfflineScreen() {
     if (result.ok) timer.current = setTimeout(() => setAll('idle'), JUST_NOW_MS);
     toast.show(result.ok ? t('offline.refreshed') : t('offline.connectFirst'));
   };
-  // What needs the instructor comes first: waiting to sync, then refresh needed, then the rest in order.
-  const rank = (r: NonNullable<typeof rows>[number]) => (r.pendingSync ? 0 : r.stale ? 1 : 2);
+  // What needs the instructor comes first: waiting to sync (or not saved), then refresh needed, then the rest in order.
+  const rank = (r: NonNullable<typeof rows>[number]) => (r.pendingSync || r.rejected ? 0 : r.stale ? 1 : 2);
   const ordered = rows ? [...rows].sort((a, b) => rank(a) - rank(b)) : undefined;
   // The card owns "waiting / syncing / synced just now"; with nothing waiting, one calm line says so.
   const synced = !status.pending && status.phase !== 'syncing' && status.phase !== 'synced';

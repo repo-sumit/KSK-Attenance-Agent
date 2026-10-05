@@ -82,6 +82,9 @@ export class ApiStaffAttendanceRepository implements StaffAttendanceRepository {
   markSynced(id: string): Promise<void> {
     throw new NotImplementedError(`markSynced(${id})`);
   }
+  markRejected(id: string): Promise<void> {
+    throw new NotImplementedError(`markRejected(${id})`);
+  }
 }
 
 /** Pushes locally locked records; the server enforces write-once per session key (409 → already submitted). */

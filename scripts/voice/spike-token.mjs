@@ -1,4 +1,4 @@
-// Spike (voice mode, Task 2, Step 1): which Gemini API version carries the whole ephemeral-token path?
+// Spike (Voice Agent, Task 2, Step 1): which Gemini API version carries the whole ephemeral-token path?
 //
 // For each version it mints a single-use token with the MVP settings (the same call src/server/voice/token.ts
 // makes), connects to Gemini Live with that token, sends one text turn and prints the version, how long the

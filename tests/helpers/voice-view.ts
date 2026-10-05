@@ -6,7 +6,7 @@ import { toSessionKey, type MarkingSlot } from '@/domain/attendance';
 import type { Batch, ShiftNo, Student, TimeWindow, Trade } from '@/domain/entities';
 import type { Mark } from '@/domain/status';
 import type { VoiceFlowState } from '@/domain/voice/flow';
-import type { FlowPlan } from '@/domain/voice/plan';
+import type { FlowPlan, VoiceCapabilities, VoicePlan } from '@/domain/voice/plan';
 import type { MarkSource } from '@/domain/voice/types';
 import type { SessionCard, SessionStatus } from '@/services/attendance';
 import type { DraftSnapshot } from '@/services/marking-draft';
@@ -20,7 +20,30 @@ export const PLAN: FlowPlan = {
   defaultStatus: 'present', startStyle: 'exceptions', rollCallSwitch: true,
   statuses: ['present', 'absent', 'leave'], ojtVisible: true,
   details: { half: false, leaveType: true, leaveDays: true },
-  navTargets: ['home', 'reports'], languages: ['en', 'mr'], openingLanguage: 'en', timeFencing: true,
+  languages: ['en', 'mr'], openingLanguage: 'en', timeFencing: true,
+};
+
+/** An instructor's capabilities in the Maharashtra demo (D-139). */
+export const CAPS: VoiceCapabilities = {
+  selfAttendance: true, reports: 'instructor', reportSections: { batches: true, atRisk: true, institute: false }, staffMarking: false, staffStatuses: [],
+  announcements: true, downloads: true, navTargets: ['home', 'reports', 'my_attendance', 'offline', 'announcements'],
+};
+
+/** The voice plan around a marking plan (an instructor): the languages are the marking plan's. */
+export const voicePlan = (marking: FlowPlan = PLAN, capabilities: VoiceCapabilities = CAPS): VoicePlan => ({
+  scope: 'instructor', marking, capabilities, languages: marking.languages, openingLanguage: marking.openingLanguage,
+});
+
+/** The principal: no marking flow, the institute's capabilities. */
+export const PRINCIPAL_PLAN: VoicePlan = {
+  scope: 'institute',
+  marking: null,
+  capabilities: {
+    selfAttendance: false, reports: 'institute', reportSections: { batches: true, atRisk: true, institute: true }, staffMarking: true,
+    staffStatuses: ['present', 'absent'], announcements: true, downloads: true, navTargets: ['home', 'attendance', 'reports', 'staff_attendance', 'announcements'],
+  },
+  languages: ['en', 'mr'],
+  openingLanguage: 'en',
 };
 
 /** A blank-default state: a roll call calls every name. */

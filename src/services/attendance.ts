@@ -5,6 +5,7 @@
  */
 import { canMarkBatch } from '@/domain/access';
 import {
+  awaitsSync,
   effectiveMarks,
   parseSessionKey,
   toSessionKey,
@@ -31,7 +32,10 @@ export interface SubmissionSummary {
   readonly id: string;
   readonly at: string;
   readonly byName: string;
+  /** Locked on this phone and still on its way to the server (pending or failed). */
   readonly pendingSync: boolean;
+  /** The server refused this phone's copy for good: someone else submitted the session first (shown only while the server's copy cannot be read). */
+  readonly rejected: boolean;
   readonly counts: MarkCounts;
 }
 
@@ -121,7 +125,8 @@ export class AttendanceService {
       id: submission.id,
       at: submission.deviceTimestamp,
       byName: by?.name ?? submission.markedBy,
-      pendingSync: submission.syncState !== 'synced',
+      pendingSync: awaitsSync(submission),
+      rejected: submission.syncState === 'rejected',
       counts: countMarks(effectiveMarks(submission, corrections)),
     };
   }

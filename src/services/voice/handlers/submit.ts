@@ -14,7 +14,7 @@ import { withReview, withSubmitted } from '@/domain/voice/flow';
 import type { FlowPlan } from '@/domain/voice/plan';
 import type { SessionCard } from '@/services/attendance';
 import type { DraftSnapshot } from '@/services/marking-draft';
-import { confirmSubmitInstruction, currentView, openDraft, stepHint, viewCounts, type VoiceView } from '../instructions';
+import { confirmSubmitInstruction, currentView, markableNow, nextOpening, openDraft, stepHint, viewCounts, type VoiceView } from '../instructions';
 import { countsOf, sessionLabel, spokenTime, studentView, type StudentView } from '../labels';
 import type { ToolResult } from '../tools';
 import { fail, markingStep as marking, wrongStep, type Handler, type HandlerContext } from './context';
@@ -22,11 +22,35 @@ import { askReview } from './review';
 
 const labelFor = (plan: FlowPlan, card: SessionCard | undefined) => (card ? sessionLabel(card, plan.slotWords) : 'this batch');
 
-/** What to say after a submit, by voice or by the on-screen button (MVP C11). */
-export function submittedInstruction(plan: FlowPlan, card: SessionCard | undefined): string {
+/** What can be marked after a submit (D-134): the trainer's markable sessions in every trade, and when the next window opens. */
+export interface NextSessions {
+  readonly open: readonly SessionCard[];
+  readonly nextOpensAt?: string;
+}
+
+/** NextSessions from the trainer's whole board (every trade), as loaded after the lock. */
+export function nextSessions(cards: readonly SessionCard[]): NextSessions {
+  const nextOpensAt = nextOpening(cards);
+  return { open: cards.filter(markableNow), ...(nextOpensAt ? { nextOpensAt } : {}) };
+}
+
+/**
+ * What to say after a submit, by voice or by the on-screen button (MVP C11, D-134): offer the next markable session by its
+ * id, or, with none, say when the next one opens and wait: voice stays open for everything else (D-142).
+ */
+export function submittedInstruction(plan: FlowPlan, card: SessionCard | undefined, next?: NextSessions): string {
   const slot = card?.address.slot;
-  const later = slot?.kind === 'half' && slot.part === 1 ? ` Say the ${plan.slotWords === 'signin_signout' ? 'sign out' : 'second half'} attendance of this batch is marked later today.` : '';
-  return `Say attendance for ${labelFor(plan, card)} is submitted and locked, in one short line, and thank the trainer.${later} If the trainer asks to submit again, call submit_attendance again: the app refuses it and says why.`;
+  const later = slot?.kind === 'half' && slot.part === 1 ? ` The ${plan.slotWords === 'signin_signout' ? 'sign out' : 'second half'} attendance of this batch is marked later today.` : '';
+  const again = ' If the trainer asks to submit again, call submit_attendance again: the app refuses it and says why.';
+  const head = `Attendance for ${labelFor(plan, card)} is submitted and locked.${later}`;
+  // the same trade first (the board covers every trade: never leave a trade that still has one open)
+  const others = next?.open.filter((c) => c.key !== card?.key) ?? [];
+  const other = others.find((c) => c.trade.id === card?.trade.id) ?? others[0];
+  if (other) {
+    return `${head} Say "submitted" in a few words, then ask whether to open ${sessionLabel(other, plan.slotWords)} next, in one short question. On yes, call select_batch with id ${other.key}.${again}`;
+  }
+  const when = next?.nextOpensAt ? ` (the next ${plan.slotWords === 'period' ? 'period' : 'batch'} opens at ${next.nextOpensAt})` : '';
+  return `${head} Say in one short line that it is submitted and nothing else can be marked right now${when}, then stop and wait for the trainer.${again}`;
 }
 
 /** Nobody may be left without a status, and no tapped half day or leave without its detail (MVP-05 §10.2). */
@@ -114,7 +138,10 @@ async function saveHeld(h: HandlerContext, key: SessionKey, card: SessionCard | 
   const result = await attendance.submit(ctx, key, sent.marks);
   if (result.ok) {
     lockSession(h, key, sent, 'submitted', routes.submitted(key));
-    return { ok: true, step: 'SUBMITTED', submission_id: result.value.id, counts, instruction: submittedInstruction(plan, card) };
+    // what can be marked now across all the trainer's trades, loaded after the lock (in one go with the view on offer;
+    // the board as last loaded if loading fails: the submit is saved)
+    const cards = await Promise.all([h.view(), h.wholeBoard()]).then(([, board]) => board, () => h.state.board);
+    return { ok: true, step: 'SUBMITTED', submission_id: result.value.id, counts, instruction: submittedInstruction(plan, card, nextSessions(cards)) };
   }
   const label = labelFor(plan, card);
   switch (result.error) {

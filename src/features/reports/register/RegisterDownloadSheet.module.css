@@ -1,0 +1,90 @@
+/* The entry buttons keep their label on one line where it fits and never shrink below the 44px target. */
+.entry {
+  flex: none;
+}
+/* A batch row's icon entry: the 44px icon button anatomy, the icon in the brand colour (named by its label and tooltip). */
+.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: var(--touch-target-min);
+  height: var(--touch-target-min);
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--color-icon-brand);
+  cursor: pointer;
+  transition: background-color var(--motion-fast) ease;
+}
+.icon:active {
+  background: var(--color-surface-brand-subtle);
+}
+.icon:focus-visible {
+  outline: 2px solid var(--color-interactive-focus);
+  outline-offset: 2px;
+}
+@media (hover: hover) {
+  .icon:hover {
+    background: var(--color-surface-brand-subtle);
+  }
+}
+
+/* Months: one large radio option each (the correction screen's option anatomy), a native radio inside. */
+.months {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-8);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.legend {
+  padding: 0;
+  margin-bottom: var(--space-8);
+  font: var(--type-label-medium);
+  letter-spacing: var(--ls-label-medium);
+  color: var(--color-text-secondary);
+}
+.option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  min-height: var(--cta-height);
+  padding: var(--space-8) var(--space-16);
+  border: var(--border-selected) solid var(--color-border-default);
+  border-radius: var(--radius-lg);
+  background: var(--color-background-surface-raised);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition:
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
+}
+.selected {
+  border-color: var(--color-border-brand);
+  background: var(--color-surface-brand-subtle);
+}
+.option:has(.radio:focus-visible) {
+  outline: 2px solid var(--color-interactive-focus);
+  outline-offset: 2px;
+}
+.radio {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--color-interactive-primary);
+}
+.radio:focus-visible {
+  outline: none;
+}
+.optionLabel {
+  flex: 1;
+  min-width: 0;
+  font: var(--type-title-small);
+  letter-spacing: var(--ls-title-small);
+  overflow-wrap: anywhere;
+}

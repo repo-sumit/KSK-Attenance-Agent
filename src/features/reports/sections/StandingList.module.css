@@ -116,7 +116,11 @@
   letter-spacing: var(--ls-body-small);
   color: var(--color-text-secondary);
 }
-/* A long list closes from its end, back to its batch. */
-.hide {
-  align-self: center;
+/* A long list closes from its end, back to its batch; the register download sits beside it (stacked when narrow). */
+.end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-8);
 }

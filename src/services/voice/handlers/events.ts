@@ -12,14 +12,12 @@ import type { SessionCard } from '@/services/attendance';
 import type { DraftChange } from '@/services/marking-draft';
 import { purposeKey, type VerificationEvent } from '@/services/verification';
 import type { ScreenSignal } from '../executor';
-import {
-  backEvent, batchEvent, faceCheckUnfinishedEvent, listEvent, lockedBatchEvent, reviewEvent, submitEvent, tapMarkEvent,
-  tradeEvent, verificationEvent,
-} from '../app-events';
+import { backEvent, batchEvent, listEvent, lockedBatchEvent, reviewEvent, submitEvent, tapMarkEvent, tradeEvent } from '../app-events';
 import { openDraft, selectedLabel, verifyingInstruction, type VoiceView } from '../instructions';
+import { followCheck } from './check';
 import { markingStep as marking, type HandlerContext } from './context';
 import { listDone, reviewTicket, toReview } from './review';
-import { submittedInstruction } from './submit';
+import { nextSessions, submittedInstruction } from './submit';
 
 /**
  * A change to the shared draft. Any change voids the open confirmation (D-082). Only a tap on the session
@@ -36,7 +34,10 @@ export function draftChangeEvent(h: HandlerContext, change: DraftChange, quiet =
   if (change.kind === 'submitted') {
     h.state.submitted = { key: change.key, snapshot: change.after };
     h.state.flow = withSubmitted(flow);
-    return submitEvent(submittedInstruction(h.deps.plan, h.viewOf().card));
+    // a listener is synchronous: what can be marked next comes from the trainer's whole board as last loaded (every
+    // trade: the kickoff loads it all; this session is left out of the offer)
+    const view = h.viewOf();
+    return submitEvent(submittedInstruction(h.deps.plan, view.card, nextSessions(h.state.board)));
   }
   const id = change.studentIds.at(-1);
   if ((change.kind !== 'mark' && change.kind !== 'bulk') || !id) return null;
@@ -63,6 +64,8 @@ function hrefOf(signal: ScreenSignal): string | null {
       return routes.home;
     case 'trade':
       return routes.trade(signal.tradeId);
+    case 'self':
+      return routes.selfAttendance;
     case 'other':
       return null;
     default:
@@ -127,7 +130,12 @@ export async function screenEvent(h: HandlerContext, signal: ScreenSignal, quiet
     const voiceDidIt = href !== null && href === h.state.lastNav;
     h.state.lastNav = null;
     h.state.screen = href;
-    if (voiceDidIt || signal.kind === 'other') return null;
+    const away = signal.kind === 'self' ? 'my_attendance' : signal.kind === 'other' ? (signal.screen ?? 'other') : null;
+    // the real screen is always kept, a tap to Reports or My attendance during a batch's check included; while the batch
+    // waits for its check, awayNow (executor.ts) hides it, so a detour on the way (face enrolment) is not read as away
+    h.state.away = away;
+    // My attendance moves no batch flow (its check is followed by ./self)
+    if (voiceDidIt || signal.kind === 'other' || signal.kind === 'self') return null;
   }
   const flow = h.state.flow;
   switch (signal.kind) {
@@ -216,36 +224,18 @@ export async function verificationHook(h: HandlerContext, e: VerificationEvent):
   const key = flow.sessionKey;
   if (flow.step !== 'VERIFY' || !key || e.purpose !== purposeKey({ kind: 'session', key })) return null;
   const v = h.verifyFor(key);
-  if (e.type === 'prompt') {
-    v.need = e.need; // the screen waits for this tap: "check again" cannot run before it
-    const seen = `${e.purpose}|${e.need}`;
-    if (v.prompts.has(seen)) return null;
-    v.prompts.add(seen);
-  } else {
-    v.prompts.clear();
-    v.need = null;
+  if (e.type !== 'granted') return followCheck(v, e, h.viewOf());
+  v.prompts.clear();
+  v.need = null;
+  const card = await h.deps.attendance.findCard(h.deps.ctx, key);
+  const opened = card && h.state.flow.step === 'VERIFY' && h.state.flow.sessionKey === key ? await h.openBatch(card) : null;
+  if (!opened?.ok) return null;
+  // Everyone already set: the gateway now replaces itself with the list, and that screen signal asks the submit
+  // question with its code. Pushing the review from here would race that signal (it would take the review back).
+  if (allSet(h, opened.view)) {
+    h.state.askOnList = key;
+    return null;
   }
-  if (e.type === 'granted') {
-    const card = await h.deps.attendance.findCard(h.deps.ctx, key);
-    const opened = card && h.state.flow.step === 'VERIFY' && h.state.flow.sessionKey === key ? await h.openBatch(card) : null;
-    if (!opened?.ok) return null;
-    // Everyone already set: the gateway now replaces itself with the list, and that screen signal asks the submit
-    // question with its code. Pushing the review from here would race that signal (it would take the review back).
-    if (allSet(h, opened.view)) {
-      h.state.askOnList = key;
-      return null;
-    }
-    h.focus(opened.view); // the first student the agent calls is marked current on the list (m13)
-    return batchEvent(opened.view);
-  }
-  if (e.type === 'camera') {
-    const unfinished = !e.on && v.cameraPending;
-    v.cameraPending = e.on;
-    if (unfinished) return faceCheckUnfinishedEvent(h.viewOf());
-  }
-  if (e.type === 'face') {
-    v.cameraPending = false;
-    if (e.result !== 'match') v.faceFailures += 1; // a mismatch or a check that saw no clear face: one try, as the screen counts
-  }
-  return verificationEvent(e, h.viewOf(), v.faceFailures);
+  h.focus(opened.view); // the first student the agent calls is marked current on the list (m13)
+  return batchEvent(opened.view);
 }

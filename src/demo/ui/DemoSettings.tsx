@@ -155,7 +155,7 @@ export function DemoSettings({ config, state, controller: c, faceEnrolled, langu
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Voice</h3>
         {/* Only voice.enabled and the voice model: never limits or marking styles, which have their own validation rules. */}
-        <Choice label="Voice mode" value={onOff(config.voice.enabled)} options={ON_OFF} onChange={(v) => c.setConfig({ voice: { enabled: v === 'on' } })} />
+        <Choice label="Voice Agent" value={onOff(config.voice.enabled)} options={ON_OFF} onChange={(v) => c.setConfig({ voice: { enabled: v === 'on' } })} />
         {config.voice.enabled && (
           <>
             <Select
@@ -164,7 +164,7 @@ export function DemoSettings({ config, state, controller: c, faceEnrolled, langu
               options={[['live', 'Live (Gemini)'], ['scripted', 'Scripted (no mic, no network)']]}
               onChange={(v) => c.setSimulation({ voice: v })}
             />
-            <p className={styles.hint}>Used from the next Voice mode start. Live needs a microphone and the server’s Gemini key.</p>
+            <p className={styles.hint}>Used from the next Voice Agent start. Live needs a microphone and the server’s Gemini key.</p>
           </>
         )}
       </section>

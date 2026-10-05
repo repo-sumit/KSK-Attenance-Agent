@@ -2,6 +2,7 @@
  * The screen the trainer is on, as the voice executor reads it (voice design §5.3), and what a running voice
  * session depends on. Pure: no React, no browser.
  */
+import type { NavTarget } from '@/domain/voice/plan';
 import { routes } from '@/lib/routes';
 import type { SessionContext } from '@/services/context';
 import type { ScreenSignal } from '@/services/voice/executor';
@@ -17,16 +18,29 @@ const SESSION_SCREENS: ReadonlyMap<string, SessionScreen> = new Map([
   [routes.record(''), 'record'],
 ]);
 
+/** The other screens voice can name in its texts ("the trainer is on the Reports screen"). */
+const NAMED_SCREENS: ReadonlyMap<string, NavTarget> = new Map([
+  [routes.reports, 'reports'],
+  [routes.reportView, 'reports'],
+  [routes.offline, 'offline'],
+  [routes.offlineDownload, 'offline'],
+  [routes.staff, 'staff_attendance'],
+  [routes.attendance, 'attendance'],
+]);
+
 export function screenSignal(pathname: string, search: URLSearchParams): ScreenSignal {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
   if (path === routes.home) return { kind: 'home' };
+  if (path === routes.selfAttendance) return { kind: 'self' };
   if (path === routes.trade('')) {
     const tradeId = search.get('trade');
     return tradeId ? { kind: 'trade', tradeId } : { kind: 'other' };
   }
   const kind = SESSION_SCREENS.get(path);
   const sessionKey = search.get('s');
-  return kind && sessionKey ? { kind, sessionKey } : { kind: 'other' };
+  if (kind && sessionKey) return { kind, sessionKey };
+  const screen = NAMED_SCREENS.get(path);
+  return screen ? { kind: 'other', screen } : { kind: 'other' };
 }
 
 /**

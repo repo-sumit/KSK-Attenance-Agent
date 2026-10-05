@@ -73,13 +73,6 @@ export const defaultOf = (plan: FlowPlan): Exclude<StatusCode, 'ojt'> | null => 
 /** Marking by exception: everyone has the default, the trainer names the others (PRD 9.2). */
 export const byException = (view: VoiceView): boolean => view.flow.step === 'ROLL_CALL' && !view.flow.rollCall && defaultOf(view.plan) !== null;
 
-/** The other statuses, as the question names them: "absent or leave". */
-export const othersThan = (plan: FlowPlan, code: StatusCode): string =>
-  plan.statuses
-    .filter((c) => c !== code && c !== 'ojt')
-    .map(word)
-    .join(' or ');
-
 /** "10 present, 1 absent, 1 leave" (zero counts left out, OJT last); withUnmarked adds "3 unmarked". */
 export function countsText(counts: Record<string, number>, withUnmarked = false): string {
   const codes = Object.keys(counts).filter((c) => c !== 'UNMARKED' && c !== 'OJT');
@@ -92,30 +85,42 @@ export function readTrades(trades: readonly Trade[]): string {
   return `Read the trade names: ${trades.map((t) => nameText(t.name)).join(', ')}. Ask which trade.`;
 }
 
-/** The question while marking by exception. */
-export function askExceptions(view: VoiceView): string {
-  const def = defaultOf(view.plan) ?? 'present';
-  return `ask who else is not ${word(def)} (${othersThan(view.plan, def)}), or whether that is all`;
-}
-
-/** Why a group of sessions cannot be marked now: the next window to open, else the last one that closed. */
-function shutText(pending: readonly SessionCard[]): string | null {
-  if (!pending.length || pending.some((c) => c.status === 'open')) return null;
-  const future = pending.find((c) => c.status === 'future' && c.scheduled.window);
-  if (future) return `not open yet (it opens at ${spokenTime(future.address.date, future.scheduled.window!.start)})`;
-  const closed = pending.filter((c) => c.status === 'closed' && c.scheduled.window).at(-1);
-  return closed ? `closed (it closed at ${spokenTime(closed.address.date, closed.scheduled.window!.end)})` : null;
-}
-
 /**
- * The batch question (MVP `readBatches`) over sessions: one entry per batch (its halves together) or per
- * period; notes on what is submitted, which half is next and which windows are shut.
+ * The question while marking by exception (D-135). By exception always starts from Present (D-117: any other default
+ * starts a roll call), so only the absentees are asked for.
  */
-export function readSessions(view: VoiceView): string {
+export const askExceptions = (_view: VoiceView): string => 'ask "anyone else?" (who else is absent)';
+
+/** A session the trainer can mark right now (D-134): its window is open and the trainer may mark it. */
+export const markableNow = (card: SessionCard): boolean => card.status === 'open' && card.canMark;
+
+/** The greeting for an IST hour of the injected clock. */
+export function greetingFor(hour: number): 'Good morning' | 'Good afternoon' | 'Good evening' {
+  if (hour < 12) return 'Good morning';
+  return hour < 17 ? 'Good afternoon' : 'Good evening';
+}
+
+/** The earliest window still to open today, as the agent says it ("2:00 pm"), when one is. */
+export function nextOpening(cards: readonly SessionCard[]): string | undefined {
+  const future = cards.filter((c) => c.status === 'future' && c.scheduled.window).sort((a, b) => a.scheduled.window!.start.localeCompare(b.scheduled.window!.start));
+  const first = future[0];
+  return first ? spokenTime(first.address.date, first.scheduled.window!.start) : undefined;
+}
+
+const unitOf = (plan: FlowPlan) => (plan.slotWords === 'period' ? 'period' : 'batch');
+
+/** An entry the trainer can choose now: one per batch (its halves together) or per period, with the card to open. */
+interface OpenGroup {
+  readonly label: string;
+  readonly key: string;
+  /** Which half is next ("the first half attendance is in; the second half one is next."), for a batch half done. */
+  readonly next?: string;
+}
+
+/** The sessions on offer grouped as the batch question reads them, keeping only the groups with a markable card. */
+function openGroups(view: VoiceView): OpenGroup[] {
   const { plan, cards } = view;
   const trade = plan.tradeStep ? view.trades.find((t) => t.id === view.flow.tradeId) : undefined;
-  const confirm = trade ? `Say just "${nameText(trade.name)}." to confirm. ` : '';
-  if (!cards.length) return `${confirm}There is no batch to mark today. Say so in one short line.`;
   const period = plan.slotWords === 'period';
   const base = (c: SessionCard) => (trade ? shortLabel(c.batch) : batchLabel(c.batch, c.trade));
   const label = (c: SessionCard) => (period ? `${base(c)}, ${slotLabel(c, plan.slotWords)}` : base(c));
@@ -124,28 +129,62 @@ export function readSessions(view: VoiceView): string {
     const key = period ? c.key : c.batch.id;
     groups.set(key, [...(groups.get(key) ?? []), c]);
   }
-
-  const done: string[] = [];
-  const next = new Map<string, string[]>();
-  const shut: { label: string; text: string }[] = [];
+  const open: OpenGroup[] = [];
   for (const group of groups.values()) {
+    const markable = group.find(markableNow);
+    if (!markable) continue;
     const pending = group.filter((c) => c.status !== 'submitted');
-    if (!pending.length) done.push(label(group[0]));
-    else if (pending.length < group.length) {
-      const said = (list: readonly SessionCard[]) => list.map((c) => slotLabel(c, plan.slotWords)).join(' and ');
-      const key = `the ${said(group.filter((c) => c.status === 'submitted'))} attendance is in; the ${said(pending)} one is next.`;
-      next.set(key, [...(next.get(key) ?? []), label(group[0])]);
-    }
-    const text = shutText(pending);
-    if (text) shut.push({ label: label(group[0]), text });
+    const said = (list: readonly SessionCard[]) => list.map((c) => slotLabel(c, plan.slotWords)).join(' and ');
+    const next = pending.length < group.length ? `the ${said(group.filter((c) => c.status === 'submitted'))} attendance is in; the ${said(pending)} one is next.` : undefined;
+    open.push({ label: label(group[0]), key: markable.key, ...(next ? { next } : {}) });
   }
-  const note =
-    (done.length ? ` Mention that ${done.join(' and ')} is already submitted today.` : '') +
-    [...next].map(([text, labels]) => ` For ${labels.join(' and ')} ${text}`).join('') +
-    (shut.length ? ` Also say that ${shut.map((s) => s.label).join(' and ')} cannot be marked right now: its attendance window is ${shut.map((s) => s.text).join('; ')}.` : '');
+  return open;
+}
+
+/**
+ * Why nothing can be marked now, in one sentence (no "Say so" tail): no session today, all submitted, the next window
+ * to open, a window open that the trainer may not mark here, or the windows closed. Null while something can be marked.
+ */
+export function nothingOpen(view: VoiceView): string | null {
+  const { plan, cards } = view;
+  const unit = unitOf(plan);
+  if (!cards.length) return `There is no ${unit} to mark today.`;
+  if (openGroups(view).length) return null;
+  if (cards.every((c) => c.status === 'submitted')) return `Every ${unit} today is already submitted.`;
+  const time = nextOpening(cards);
+  if (time) return `Nothing can be marked right now: the next ${unit} opens at ${time}.`;
+  // an open window this trainer may not mark (an access reason), not a closed one
+  if (cards.some((c) => c.status === 'open')) return `None of today's ${plan.slotWords === 'period' ? 'periods' : 'batches'} can be marked by you here.`;
+  return "Nothing can be marked right now: today's attendance windows are closed.";
+}
+
+/** The open entries, each with the id to pass to select_batch: "Shift 1, Unit 2, Electrician: <id>". */
+export function openSessionIds(view: VoiceView): string[] {
+  return openGroups(view).map((g) => `${g.label}: ${g.key}`);
+}
+
+/**
+ * The batch question (MVP `readBatches`) over sessions, D-134: only the entries that can be marked now, one per batch
+ * (its halves together) or per period, with which half is next; nothing about submitted, later or closed ones.
+ */
+export function readSessions(view: VoiceView): string {
+  const { plan } = view;
+  const trade = plan.tradeStep ? view.trades.find((t) => t.id === view.flow.tradeId) : undefined;
+  const confirm = trade ? `Say just "${nameText(trade.name)}." to confirm. ` : '';
+  const nothing = nothingOpen(view);
+  if (nothing) return `${confirm}${nothing} Say so in one short line.`;
+  const open = openGroups(view);
+  const period = plan.slotWords === 'period';
+  const unit = unitOf(plan);
+  const next = new Map<string, string[]>();
+  for (const g of open) if (g.next) next.set(g.next, [...(next.get(g.next) ?? []), g.label]);
+  const note = [...next].map(([text, labels]) => ` For ${labels.join(' and ')} ${text}`).join('');
+  if (open.length === 1) {
+    return `${confirm}Only ${open[0].label} can be marked now. Say that in one short line and ask whether to open it; on yes, call select_batch with id ${open[0].key}.${note}`;
+  }
   const pattern = `Shift <n>, Unit <n>${trade ? '' : ', <trade>'}${period ? ', Period <n>' : ''}`;
   const ask = period ? ' Pass a period as "period <n>" (a number alone is read as a shift).' : '';
-  return `${confirm}Read the ${period ? 'periods' : 'batches'} as "${pattern}", with numbers said the way the trainer's language says them: ${[...groups.values()].map((g) => label(g[0])).join('; ')}.${note} Then ask which one in two or three words.${ask}`;
+  return `${confirm}Read only the ${period ? 'periods' : 'batches'} open now, as "${pattern}", with numbers said the way the trainer's language says them: ${open.map((g) => g.label).join('; ')}.${note} Do not mention any other ${unit}. Then ask which one in two or three words.${ask}`;
 }
 
 /** A submit is saving the draft (view.submitting): nothing to ask; the trainer waits for its result. */
@@ -208,5 +247,5 @@ export function verifyingInstruction(view: VoiceView): string {
   const label = selectedLabel(view) ?? 'the batch';
   const phrase = verificationPhrase(view.plan);
   if (!phrase) return `Say just that you are opening ${label}, then wait for the next [APP] message.`;
-  return `Before the student list, the app checks the trainer's ${phrase}. Say in one short line, in the trainer's language: please stay where you are and look at the screen. Then stop and wait: the app tells you when the list of ${label} is open.`;
+  return `Before the student list, the app checks the trainer's ${phrase}. Say in one short line, in the trainer's language: please look at the screen. Then stop and wait: the app tells you when the list of ${label} is open.`;
 }

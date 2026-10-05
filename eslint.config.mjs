@@ -3,7 +3,7 @@ import nextVitals from 'eslint-config-next/core-web-vitals';
 import nextTs from 'eslint-config-next/typescript';
 
 const noMockData = {
-  group: ['@/data/*', '@/data/**', '@/repositories/mock/*', '@/repositories/api/*'],
+  group: ['@/data/*', '@/data/**', '@/repositories/mock/*', '@/repositories/api/*', '@/repositories/supabase', '@/repositories/supabase/*', '@/repositories/supabase/**', '@supabase/*'],
   message: 'UI code reaches data only through services (useServices / useQuery). See docs/ARCHITECTURE.md.',
 };
 const noDemo = {

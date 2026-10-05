@@ -44,6 +44,8 @@ export interface AttendanceRepository {
   /** Write-once: a second submission for the same session key is refused here too (INV-01). */
   createSubmission(submission: AttendanceSubmission): Promise<Result<AttendanceSubmission, 'already_submitted'>>;
   markSubmissionSynced(id: string, serverTimestamp: string): Promise<void>;
+  /** The server refused it for good (someone else submitted first): kept on the device, never pushed again. */
+  markSubmissionRejected(id: string): Promise<void>;
   getDraft(sessionKey: SessionKey): Promise<AttendanceDraft | undefined>;
   saveDraft(draft: AttendanceDraft): Promise<void>;
   deleteDraft(sessionKey: SessionKey): Promise<void>;
@@ -64,12 +66,16 @@ export interface StaffAttendanceRepository {
   /** One record per person per day (INV-22). */
   create(record: StaffAttendanceRecord): Promise<Result<StaffAttendanceRecord, 'already_marked'>>;
   markSynced(id: string): Promise<void>;
+  /** The server refused it for good (another record for that person and day is there): kept, never pushed again. */
+  markRejected(id: string): Promise<void>;
 }
 
 /** SIMULATION ONLY today: stores that enrolment happened, never an image or template. */
 export interface FaceEnrolmentRepository {
   get(staffId: StaffId): Promise<FaceEnrolment | undefined>;
   save(enrolment: FaceEnrolment): Promise<void>;
+  /** Removes the enrolment flag (the demo's "Face registered: No" and First-time user stories). */
+  remove(staffId: StaffId): Promise<void>;
   count(): Promise<number>;
 }
 

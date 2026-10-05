@@ -1,4 +1,4 @@
-/** Browser audio seam for voice mode: PCM16 mono in at 16 kHz, PCM16 mono out at 24 kHz. */
+/** Browser audio seam for Voice Agent: PCM16 mono in at 16 kHz, PCM16 mono out at 24 kHz. */
 
 export type MicError = 'permission_denied' | 'not_found' | 'busy' | 'insecure' | 'unsupported' | 'failed';
 

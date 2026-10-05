@@ -16,7 +16,7 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
-        // Camera (face check), location (geo-fence) and microphone (voice mode, D-078) are used by this origin only;
+        // Camera (face check), location (geo-fence) and microphone (Voice Agent, D-078) are used by this origin only;
         // nothing else is.
         source: '/:path*',
         headers: [{ key: 'Permissions-Policy', value: 'camera=(self), geolocation=(self), microphone=(self)' }],

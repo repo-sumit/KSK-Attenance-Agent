@@ -50,7 +50,7 @@ export function OpenSessionScreen() {
     if (gate.kind === 'ready') router.replace(routes.mark(key));
     else if (gate.kind === 'already_submitted') router.replace(routes.record(key));
     else if (enrolFirst) {
-      // Voice mode tells the person why the screen changed: their face has to be registered before the check.
+      // Voice Agent tells the person why the screen changed: their face has to be registered before the check.
       verification.notify({ kind: 'session', key }, 'face_enrolment');
       router.replace(routes.face(routes.open(key)));
     }

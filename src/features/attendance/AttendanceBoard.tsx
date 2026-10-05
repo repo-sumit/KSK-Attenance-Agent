@@ -30,7 +30,7 @@ export function AttendanceBoard({ showGroupTitles = true }: { readonly showGroup
   const board = useBoard();
   const { voice } = useServices();
   const [tradeId, setTradeId] = useState<string | null>(null);
-  // Voice mode chose a trade (trade switcher): the same local state a tap on the switch sets. Voice pushes Home and
+  // Voice Agent chose a trade (trade switcher): the same local state a tap on the switch sets. Voice pushes Home and
   // shows the trade in one tick, before this board mounts, so a show_trade no board has seen yet is replayed (F7),
   // unless voice showed Home again after it.
   useVoiceBusEvent('show_trade', (e) => setTradeId(e.tradeId), { replayMissed: true, replayBound: homeShown });

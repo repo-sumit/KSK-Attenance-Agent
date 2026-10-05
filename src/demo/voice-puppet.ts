@@ -24,7 +24,7 @@ export interface VoicePuppet {
   drop(code?: number): void;
   /** The server announces it will close in `ms` (the session swaps connections). */
   goAway(ms: number): void;
-  /** The next Voice mode start finds the microphone unavailable with `error`. */
+  /** The next Voice Agent start finds the microphone unavailable with `error`. */
   denyMic(error?: MicError): void;
 }
 

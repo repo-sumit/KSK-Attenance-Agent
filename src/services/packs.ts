@@ -14,6 +14,7 @@ import { err, ok, type Result } from '@/lib/result';
 import type { BatchPackRepository, MasterDataRepository, OfflineQueueRepository } from '@/repositories/interfaces';
 import type { ConnectivityService } from './connectivity';
 import type { SessionContext } from './context';
+import { REJECTED } from './sync';
 
 export interface PackRow {
   readonly batch: Batch;
@@ -22,6 +23,8 @@ export interface PackRow {
   readonly stale: boolean;
   /** This batch's records locked on the phone and not yet synced. */
   readonly pendingSync: number;
+  /** This batch's records the server refused for good (someone else submitted the session first): never sent again. */
+  readonly rejected: number;
 }
 
 type Delay = (ms: number) => Promise<void>;
@@ -59,17 +62,19 @@ export class BatchPackService {
     const now = ctx.clock.now();
     const packs = await this.packs.list();
     const pending = new Map<string, number>();
+    const rejected = new Map<string, number>();
     for (const item of (await this.queue?.list()) ?? []) {
       if (item.kind !== 'attendance_submission') continue;
       const batchId = parseSessionKey(item.label)?.batchId;
-      if (batchId) pending.set(batchId, (pending.get(batchId) ?? 0) + 1);
+      const tally = item.lastError === REJECTED ? rejected : pending;
+      if (batchId) tally.set(batchId, (tally.get(batchId) ?? 0) + 1);
     }
     return packs
       .filter((p) => this.inScope(ctx, p.batchId))
       .flatMap((pack) => {
         const batch = ctx.data.batches.find((b) => b.id === pack.batchId);
         const trade = batch && ctx.data.trades.find((t) => t.id === batch.tradeId);
-        return batch && trade ? [{ batch, trade, pack, stale: isPackStale(pack, now, ctx.config.offline.refreshDays), pendingSync: pending.get(batch.id) ?? 0 }] : [];
+        return batch && trade ? [{ batch, trade, pack, stale: isPackStale(pack, now, ctx.config.offline.refreshDays), pendingSync: pending.get(batch.id) ?? 0, rejected: rejected.get(batch.id) ?? 0 }] : [];
       })
       .sort((a, b) => a.trade.name.localeCompare(b.trade.name) || a.batch.shift - b.batch.shift || a.batch.unit - b.batch.unit);
   }

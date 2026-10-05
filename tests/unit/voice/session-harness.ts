@@ -10,7 +10,7 @@ import { MarkingDraftService, type DraftChange } from '@/services/marking-draft'
 import { ScriptedLiveTransport, SilentAudio } from '@/services/simulated/voice';
 import { VerificationService, type VerificationEvent } from '@/services/verification';
 import { ActionBus } from '@/services/voice/action-bus';
-import { RECONNECT_EVENT } from '@/services/voice/app-events';
+import { RECONNECT_EVENT, RESUME_EVENT } from '@/services/voice/app-events';
 import type { ScreenSignal, ToolCall, ToolResult, VoiceExecutor } from '@/services/voice/executor';
 import { fetchLiveToken } from '@/services/voice/live/token-client';
 import type { LiveTransport } from '@/services/voice/live/transport';
@@ -79,8 +79,13 @@ export function stubExecutor() {
       return respond(call);
     },
     flow: () => { throw new Error('flow() is not used by the session'); },
-    view: async () => { throw new Error('view() is not used by the session'); },
-    kickoff: async (kind: 'start' | 'reconnect'): Promise<string> => (kind === 'start' ? '[APP] Session started.' : RECONNECT_EVENT),
+    /** The question pending when each kickoff ran, as the session passed it. */
+    kickoffs: [] as (string | null | undefined)[],
+    kickoff: async (kind: 'start' | 'reconnect', _language?: string, pending?: string | null): Promise<string> => {
+      ex.kickoffs.push(pending);
+      return kind === 'start' ? '[APP] Session started.' : RECONNECT_EVENT;
+    },
+    resumeText: (): string => RESUME_EVENT,
     async refresh(pending: string | null, heard = '') { ex.refreshes.push(pending); ex.heards.push(heard); return refreshed(); },
     onDraftChange: (change: DraftChange) => (change.via === 'tap' ? `[APP] Tapped ${change.studentIds.join(',')}` : null),
     async onScreen(signal: ScreenSignal, quiet?: () => boolean) {

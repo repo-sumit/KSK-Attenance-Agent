@@ -15,6 +15,7 @@ import { useI18n } from '@/hooks/i18n';
 import { useServices } from '@/hooks/services';
 import { useSession } from '@/hooks/session';
 import { useQuery } from '@/hooks/useQuery';
+import { isEmbeddedWebView } from '@/lib/platform';
 import { routes } from '@/lib/routes';
 import { toLocalDate } from '@/lib/time';
 import { isDetailBlock } from '@/services/reports';
@@ -49,8 +50,7 @@ export function ReportScreen() {
 
   const print = () => {
     // Android WebViews (SwiftChat included) expose window.print but ignore it unless the host wires printing.
-    const embedded = /; wv\)/.test(navigator.userAgent);
-    if (!embedded && typeof window.print === 'function') window.print();
+    if (!isEmbeddedWebView() && typeof window.print === 'function') window.print();
     else toast.show(t('reports.printUnavailable'));
   };
 

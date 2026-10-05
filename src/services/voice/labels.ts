@@ -61,6 +61,11 @@ export function spokenTime(date: LocalDate, time: LocalTime): string {
   return CLOCK.format(instantAt(date, time)).replace(/\s+/g, ' ').toLowerCase();
 }
 
+/** The time of a saved record (an ISO instant) as the agent says it: "10:15 am". */
+export function clockTime(iso: string): string {
+  return CLOCK.format(new Date(iso)).replace(/\s+/g, ' ').toLowerCase();
+}
+
 /** The window of a session that cannot be marked now: "closed at 2:00 pm" or "opens at 2:00 pm". */
 export function windowNote(card: SessionCard): string | undefined {
   const w = card.scheduled.window;
@@ -103,7 +108,7 @@ export function countsOf(draft: DraftSnapshot, statuses: readonly StatusCode[]):
 const DAY = new Intl.DateTimeFormat('en-IN', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Asia/Kolkata' });
 
 /** "Wednesday, 7 October": how the agent says the last day of a leave (MVP `dayWords`). */
-const dayWords = (date: LocalDate): string => DAY.format(instantAt(date, '12:00'));
+export const dayWords = (date: LocalDate): string => DAY.format(instantAt(date, '12:00'));
 
 /** A status with its detail, as the agent says it: "half day, first half", "leave, sick, until Wednesday, 7 October". */
 export function statusWords(mark: Mark): string {
@@ -118,6 +123,14 @@ export function statusWords(mark: Mark): string {
 export function distanceText(distanceM: number): string {
   const { value, unit } = distanceParts(distanceM);
   return unit === 'km' ? `${value.toFixed(2)} kilometres` : `${value} ${value === 1 ? 'metre' : 'metres'}`;
+}
+
+/**
+ * The checks the screen runs, as the agent names them: "location and face", "location" or "face" ("" with none). Silent
+ * geo-tagging ('background') is never named: it has no voice line (PRD 8.1), as in verificationPhrase.
+ */
+export function checkWords(v: { readonly location: string; readonly face: boolean }): string {
+  return [v.location === 'fence' && 'location', v.face && 'face'].filter(Boolean).join(' and ');
 }
 
 /** What the gateway checks, for the voice line. null when only silent geo-tagging runs (PRD 8.1: no voice line for tagging). */

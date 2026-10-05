@@ -1,5 +1,5 @@
 /*
- * Voice mode's floating element (D-133): the round mic button (an extended pill from 600px), the minimized status
+ * Voice Agent's floating element (D-133): the round mic button (an extended pill from 600px), the minimized status
  * button and the voice card. Fixed at the bottom-right of the screen's content column, just above its footer and
  * bottom navigation: VoiceFloat measures the screen's dock anchor (DockAnchor) into the --float-* variables; the
  * defaults below are the viewport's corner, used before a screen has mounted. Above the screens, under menus, sheets,
@@ -15,9 +15,9 @@
   bottom: var(--float-bottom);
   right: var(--float-right);
 }
-/* The button floats a little above the dock's top, over the scroller's bottom-right corner (screens keep scroll room). */
+/* The button floats 16px above the dock's top, over the scroller's bottom-right corner (screens keep scroll room). */
 .asButton {
-  bottom: calc(var(--float-bottom) + var(--space-8));
+  bottom: calc(var(--float-bottom) + var(--space-16));
 }
 /* Phones: the anchor's slim margin is for the card; the button keeps the DS page margin from the edge. */
 @media (max-width: 599px) {
@@ -134,7 +134,7 @@
  */
 @media all {
   :global(html[data-voice-float='button']) {
-    --voice-reserve-block-end: calc(var(--voice-float-height) + var(--space-16));
+    --voice-reserve-block-end: calc(var(--voice-float-height) + var(--space-24));
   }
   :global(html[data-voice-float='card']) {
     --voice-space: var(--voice-float-height);

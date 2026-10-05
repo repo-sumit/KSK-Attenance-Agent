@@ -1,14 +1,14 @@
 /**
  * What every voice tool handler shares (voice design §5, D-079): the executor's dependencies and state,
- * the handler context, the result helpers (`fail`, `snapshot`) and the `VoiceView` builder. Ported from the
- * MVP executor's result conventions (MVP-05 §3.5, MVP-04 §2.3–2.4) with KSK services in place of the store.
+ * the handler context, the result helpers (`snapshot`; `fail` and `str` from ./base) and the `VoiceView`
+ * builder. Ported from the MVP executor's result conventions (MVP-05 §3.5, MVP-04 §2.3–2.4) with KSK
+ * services in place of the store.
  * A view carries a draft only while a batch is open for the selected session: student fields come from
  * nowhere else, and a draft can only be opened through `openRoster`, which requires the pass (INV-16).
  */
-import type { OpenRosterError, AttendanceService, SessionCard } from '@/services/attendance';
+import type { OpenRosterError, SessionCard } from '@/services/attendance';
 import type { SessionContext } from '@/services/context';
 import type { DraftSnapshot, MarkingDraftService } from '@/services/marking-draft';
-import type { VerificationNeed, VerificationService } from '@/services/verification';
 import type { SessionKey } from '@/domain/attendance';
 import type { Trade } from '@/domain/entities';
 import type { Mark, StatusCode } from '@/domain/status';
@@ -16,28 +16,16 @@ import { checkConfirm, issueConfirm, type ConfirmAction, type ConfirmNow, type C
 import { initialFlow, progressOf, withBatch, withTrade, type DraftView, type VoiceFlowState } from '@/domain/voice/flow';
 import type { FlowPlan } from '@/domain/voice/plan';
 import { toModelStatus } from '@/domain/voice/types';
-import type { ActionBus } from '../action-bus';
+import { fail, freshBaseState, freshCheck, type BaseContext, type BaseDeps, type BaseState, type CheckMemory } from './base';
 import { byException, currentView, openDraft, selectedLabel, stepHint, studentOf, viewCounts, type VoiceView } from '../instructions';
 import { nameText, sessionLabel, windowNote } from '../labels';
 import type { ToolResult } from '../tools';
 
-export interface ExecutorDeps {
-  readonly ctx: SessionContext;
+/** The marking handlers' dependencies: the shared ones, the marking plan and what marking needs besides. */
+export interface MarkingDeps extends BaseDeps {
   readonly plan: FlowPlan;
-  readonly attendance: AttendanceService;
-  readonly verification: VerificationService;
   readonly drafts: MarkingDraftService;
-  readonly bus: ActionBus;
   readonly isOnline: () => boolean;
-  /** Real elapsed time for the confirmation TTL (never the demo's frozen business clock). */
-  readonly nowMs: () => number;
-  /** The confirmation counters (D-082, ../trainer-turns): trainer turns, ended model turns, and turnSeq when the trainer's latest turn began. */
-  readonly speechSeq: () => number;
-  readonly turnSeq: () => number;
-  readonly spokeAtTurn: () => number;
-  readonly generation: () => number;
-  /** A number in [0, 1). */
-  readonly entropy: () => number;
 }
 
 export type Args = Readonly<Record<string, unknown>>;
@@ -55,22 +43,22 @@ export interface OpenNameEntry {
   asked: boolean;
 }
 
-export interface ExecState {
+export interface ExecState extends BaseState {
   flow: VoiceFlowState;
   /** At most one open confirmation (D-082). */
   ticket: ConfirmTicket | null;
-  /** The last href voice navigated to, consumed by the next screen signal. */
-  lastNav: string | null;
-  /** Where the screen is: the href of the latest screen signal, or of voice's own latest navigation (null: unknown). */
-  screen: string | null;
   open: OpenNameEntry[];
   /** Students set_student_status just marked fresh: the exceptions of "sab present, sirf ...". */
   named: { key: SessionKey | null; ids: string[] };
   /** The locked draft of the last submit (the live draft is closed after a submit). */
   submitted: { readonly key: SessionKey; readonly snapshot: DraftSnapshot } | null;
-  endRequested: boolean;
   /** The sessions on offer and the selected session's card, as last loaded. */
   cards: readonly SessionCard[];
+  /**
+   * Every session of the trainer today, across all their trades, as last loaded (D-134: what can be marked next). With a
+   * trade step each load of one trade's sessions replaces that trade's part; wholeBoard() reloads all of it.
+   */
+  board: readonly SessionCard[];
   card: SessionCard | undefined;
   readonly inFlight: Map<SessionKey, Promise<ToolResult>>;
   verify: VerifyMemory;
@@ -79,17 +67,11 @@ export interface ExecState {
 }
 
 /** What voice knows of the check on screen for one session, as the gateway screen counts it (it starts again with the screen). */
-export interface VerifyMemory {
+export interface VerifyMemory extends CheckMemory {
   readonly key: SessionKey | null;
-  readonly prompts: Set<string>;
-  cameraPending: boolean;
-  /** Failed face tries, counted as the screen counts them toward faceRetryLimit: no match, or a check that could not see one clear face. */
-  faceFailures: number;
-  /** The tap the screen is waiting for (its latest prompt), until anything else happens. */
-  need: VerificationNeed | null;
 }
 
-const freshVerify = (key: SessionKey | null): VerifyMemory => ({ key, prompts: new Set(), cameraPending: false, faceFailures: 0, need: null });
+const freshVerify = (key: SessionKey | null): VerifyMemory => ({ key, ...freshCheck() });
 
 export type Opened =
   | { readonly ok: true; readonly view: VoiceView }
@@ -97,11 +79,16 @@ export type Opened =
   /** A tap or another tool moved the flow on while the roster loaded: nothing was opened; `view` is the current state. */
   | { readonly ok: false; readonly error: 'stale'; readonly view: VoiceView };
 
-export interface HandlerContext {
-  readonly deps: ExecutorDeps;
+export interface HandlerContext extends BaseContext {
+  readonly deps: MarkingDeps;
   readonly state: ExecState;
   /** Reloads the sessions on offer; the draft is read after the last await. */
   view(): Promise<VoiceView>;
+  /**
+   * Loads every session of the trainer today across all their trades (the trades in one Promise.all, never one after
+   * another), keeps it as `state.board` and returns it in board order. Without a trade step it is the list on offer.
+   */
+  wholeBoard(): Promise<readonly SessionCard[]>;
   /**
    * Loads the sessions on offer for `step(flow)`, then moves to `step` of the flow as it is after the load (a tap or a
    * screen signal meanwhile is kept, never overwritten by a target computed before it): when loading throws, the
@@ -111,8 +98,6 @@ export interface HandlerContext {
   /** The view from the last loaded sessions, with the current flow and draft (or the given overrides). */
   viewOf(over?: Partial<VoiceView>): VoiceView;
   draftView(snapshot: DraftSnapshot): DraftView;
-  /** Every href is built with `routes.*` from ids the services returned, never from a model string. */
-  navigate(href: string, replace: boolean): void;
   /** The current student, else `fallback` (the student just marked). */
   focus(view: VoiceView, fallback?: string): void;
   issue(action: ConfirmAction, key: SessionKey, argsKey: string): string;
@@ -128,10 +113,8 @@ export interface HandlerContext {
 
 export type Handler = (h: HandlerContext, args: Args) => Promise<ToolResult>;
 
-/** `instruction` last, so an extra field can never replace it (MVP-05 L430-L435). */
-export function fail(error: string, instruction: string, extra: Record<string, unknown> = {}): ToolResult {
-  return { ok: false, error, ...extra, instruction };
-}
+/** The result helpers every plan shares (./base), re-exported for the marking handlers. */
+export { fail, str } from './base';
 
 export const INTERNAL_RESULT: ToolResult = {
   ok: false,
@@ -139,8 +122,6 @@ export const INTERNAL_RESULT: ToolResult = {
   instruction: 'Something went wrong in the app. Say sorry in a few words and repeat your last question.',
 };
 
-/** Loose model input (MVP-04 §2.4): a trimmed string, a number as text, anything else empty. */
-export const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
 export const sameId = (a: string, b: string | null): boolean => !!b && a.toLowerCase() === b.toLowerCase();
 export const has = (record: Readonly<Record<string, unknown>>, id: string): boolean => Object.prototype.hasOwnProperty.call(record, id);
 
@@ -204,7 +185,7 @@ export function snapshot(view: VoiceView): Record<string, unknown> {
 const tradesOf = (ctx: SessionContext): Trade[] =>
   ctx.access.tradeIds.map((id) => ctx.data.trades.find((t) => t.id === id)).filter((t): t is Trade => t !== undefined);
 
-async function cardsOnOffer(deps: ExecutorDeps, flow: VoiceFlowState): Promise<SessionCard[]> {
+async function cardsOnOffer(deps: MarkingDeps, flow: VoiceFlowState): Promise<SessionCard[]> {
   const { ctx, plan, attendance } = deps;
   if (plan.tradeStep) return flow.tradeId ? attendance.boardForTrade(ctx, flow.tradeId) : [];
   if (plan.selection === 'timetable') return attendance.timetableBoard(ctx);
@@ -223,22 +204,27 @@ export function dropStaleSubmit(state: ExecState): void {
 /** A batch is open for marking in this step: the list or the review. */
 export const markingStep = (step: string): boolean => step === 'ROLL_CALL' || step === 'REVIEW';
 
+/**
+ * A batch is being opened for its check (VERIFY with a session): the screens on the way (the face enrolment detour,
+ * /face?next=..., which voice cannot name) belong to opening it, so the trainer is not "away" from the batches.
+ */
+export const verifyingBatch = (flow: VoiceFlowState): boolean => flow.step === 'VERIFY' && !!flow.sessionKey;
+
 /** Another step, batch or trade: what the flow targets changed (a pointer move on the same list does not count). */
 const movedOn = (a: VoiceFlowState, b: VoiceFlowState): boolean => a.step !== b.step || a.sessionKey !== b.sessionKey || a.tradeId !== b.tradeId;
 
-export function createHandlerContext(deps: ExecutorDeps): HandlerContext {
+export function createHandlerContext(deps: MarkingDeps): HandlerContext {
   const { ctx, plan, drafts, bus } = deps;
   const trades = tradesOf(ctx);
   const state: ExecState = {
     flow: initialFlow(plan),
     ticket: null,
-    lastNav: null,
-    screen: null,
+    ...freshBaseState(),
     open: [],
     named: { key: null, ids: [] },
     submitted: null,
-    endRequested: false,
     cards: [],
+    board: [],
     card: undefined,
     inFlight: new Map(),
     verify: freshVerify(null),
@@ -263,10 +249,22 @@ export function createHandlerContext(deps: ExecutorDeps): HandlerContext {
     return { plan, flow, trades, cards: over.cards ?? state.cards, card, draft, faceRetryLimit: ctx.journey.verification.faceRetryLimit, ...held };
   }
 
+  /** The board with one load of the sessions on offer for `flow` in place (board order: the trades' order). */
+  function keepBoard(flow: VoiceFlowState, cards: readonly SessionCard[]): void {
+    if (!plan.tradeStep) {
+      state.board = cards;
+      return;
+    }
+    if (!flow.tradeId) return;
+    state.board = trades.flatMap((t) => (t.id === flow.tradeId ? cards : state.board.filter((c) => c.trade.id === t.id)));
+  }
+
   async function view(): Promise<VoiceView> {
-    const cards = await cardsOnOffer(deps, state.flow);
+    const flow = state.flow;
+    const cards = await cardsOnOffer(deps, flow);
     const key = state.flow.sessionKey;
     state.cards = cards;
+    keepBoard(flow, cards);
     state.card = key ? (cards.find((c) => c.key === key) ?? (await deps.attendance.findCard(ctx, key))) : undefined;
     return viewOf();
   }
@@ -286,6 +284,7 @@ export function createHandlerContext(deps: ExecutorDeps): HandlerContext {
       state.flow = now;
       state.cards = cards;
       state.card = card;
+      keepBoard(target, cards);
       return viewOf();
     }
   }
@@ -305,6 +304,16 @@ export function createHandlerContext(deps: ExecutorDeps): HandlerContext {
     deps,
     state,
     view,
+    async wholeBoard() {
+      if (!plan.tradeStep) {
+        const cards = await cardsOnOffer(deps, state.flow);
+        state.board = cards;
+        return cards;
+      }
+      const loaded = await Promise.all(trades.map((t) => deps.attendance.boardForTrade(ctx, t.id)));
+      state.board = loaded.flat();
+      return state.board;
+    },
     moveTo,
     viewOf,
     draftView,
@@ -312,6 +321,10 @@ export function createHandlerContext(deps: ExecutorDeps): HandlerContext {
       state.lastNav = href;
       state.screen = href;
       bus.emit({ type: 'navigate', href, replace });
+    },
+    async afterNavigate() {
+      const cur = currentView(await view());
+      return cur && state.flow.step === 'ROLL_CALL' ? ` The roll call is still open: then call out ${cur.call_as}.` : '';
     },
     focus(v, fallback) {
       const studentId = v.flow.currentId ?? fallback;

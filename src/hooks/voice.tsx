@@ -2,12 +2,17 @@
 import { createContext, useContext } from 'react';
 import type { VoiceState } from '@/services/voice/session';
 
-/** What screens read and call for Voice mode (D-085). Provided by features/voice/VoiceProvider. */
+/** What screens read and call for Voice Agent (D-085). Provided by features/voice/VoiceProvider. */
 export interface VoiceApi {
-  /** A flow plan exists for this session, the browser can run the mic (or the voice is scripted), not the institute view. */
+  /**
+   * A voice plan exists for this session (instructors and the principal alike, wherever voice is enabled, D-139) and the
+   * browser can run the mic (or the voice is scripted).
+   */
   readonly available: boolean;
+  /** The voice plan marks batches (it has a marking flow): the button's hint says what voice is for here. */
+  readonly marks: boolean;
   readonly online: boolean;
-  /** Null while voice mode is off. */
+  /** Null while Voice Agent is off. */
   readonly state: VoiceState | null;
   /** Synchronous: call it from the click handler (the AudioContexts are created inside it). */
   start(): void;
@@ -30,6 +35,7 @@ export const VoiceFocusContext = createContext<VoiceState['focus']>(null);
 const noop = () => undefined;
 const INERT: VoiceApi = Object.freeze({
   available: false,
+  marks: false,
   online: true,
   state: null,
   start: noop,

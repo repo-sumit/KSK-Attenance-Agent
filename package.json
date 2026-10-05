@@ -19,11 +19,13 @@
     "check:demo": "node scripts/check-demo-stripped.mjs",
     "voice:spike-token": "node --env-file=.env.development scripts/voice/spike-token.mjs",
     "voice:spike-voices": "node --env-file=.env.development scripts/voice/spike-voices.mjs",
-    "test:voice-live": "node --env-file=.env.development ./node_modules/vitest/vitest.mjs run --config vitest.voice-live.config.mts"
+    "test:voice-live": "node --env-file=.env.development ./node_modules/vitest/vitest.mjs run --config vitest.voice-live.config.mts",
+    "test:supabase-live": "vitest run --config vitest.supabase-live.config.mts"
   },
   "dependencies": {
     "@google/genai": "2.26.0",
     "@mediapipe/tasks-vision": "0.10.35",
+    "@supabase/supabase-js": "2.117.2",
     "next": "16.3.6",
     "react": "19.2.8",
     "react-dom": "19.2.8"

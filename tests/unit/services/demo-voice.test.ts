@@ -17,7 +17,7 @@ function demoApp(): { demo: DemoAdapters; app: AppContainer } {
 }
 
 describe('demo voice', () => {
-  it('every preset switches Voice mode on, and only voice.enabled', () => {
+  it('every preset switches Voice Agent on, and only voice.enabled', () => {
     for (const p of PRESETS) expect(p.config.voice).toEqual({ enabled: true });
   });
 

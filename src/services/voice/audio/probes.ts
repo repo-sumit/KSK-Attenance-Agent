@@ -64,7 +64,7 @@ function settingsText(track: MediaStreamTrack | undefined): string {
 
 /**
  * Test microphone: the permission, the track's settings, the worklet load, then two seconds of level readings from
- * the same recorder voice mode uses. Stops at the first step that fails. Call synchronously from the click handler.
+ * the same recorder Voice Agent uses. Stops at the first step that fails. Call synchronously from the click handler.
  */
 export async function testMicrophone(): Promise<DiagnosticRow[]> {
   // Synchronous part: the 16 kHz context is made and resumed inside the click, before any await.
@@ -116,7 +116,7 @@ export async function testMicrophone(): Promise<DiagnosticRow[]> {
 }
 
 /**
- * Test speaker: a 440 Hz, 0.5 s tone through the 24 kHz output path voice mode plays the model on. Call synchronously
+ * Test speaker: a 440 Hz, 0.5 s tone through the 24 kHz output path Voice Agent plays the model on. Call synchronously
  * from the click handler. Playing is not hearing: the app cannot tell whether the tone was audible (volume, a muted
  * phone, a Bluetooth route), so a played tone is a note for the person to judge, never a pass (C12).
  */

@@ -113,7 +113,7 @@ export function useVerification(purpose: VerificationPurpose, onPassed: () => vo
     };
   }, [attempt, from]);
 
-  // Voice mode listens (D-086): which tap the screen is waiting for, and whether the face camera is on.
+  // Voice Agent listens (D-086): which tap the screen is waiting for, and whether the face camera is on.
   const waitingFor: VerificationNeed | null =
     phase.kind === 'primer' ? (phase.permission === 'location' ? 'location_permission' : 'camera_permission') : phase.kind === 'confirm' ? 'confirm_location' : null;
   const cameraOn = phase.kind === 'facing' || phase.kind === 'matching';

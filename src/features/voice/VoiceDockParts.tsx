@@ -32,19 +32,28 @@ export function dockStatus(state: Pick<VoiceState, 'status' | 'pushToTalk' | 'ta
 }
 
 /**
- * Room for the second caption line, push-to-talk and the hints without opening the dock. A 320×568 phone leaves
- * about 424px for the roster, so small screens get the one compact row and open the rest on demand.
+ * The card's layout (D-136). TALL: room for the second caption line, push-to-talk and the hints without opening the
+ * card (a 320×568 phone leaves about 424px for the roster). WIDE: room for the status on its own line, above the
+ * labelled actions (a short laptop window at 1280×688 is wide, not tall). Narrow and short phones get the one compact
+ * row and open the rest on demand. The server, and a browser without matchMedia, read both as true.
  */
-const ROOMY = '(min-width: 360px) and (min-height: 700px)';
+const TALL = '(min-width: 360px) and (min-height: 700px)';
+const WIDE = '(min-width: 400px)';
 const hasMatchMedia = () => typeof window !== 'undefined' && typeof window.matchMedia === 'function';
-function subscribeRoomy(onChange: () => void): () => void {
+function subscribeTo(media: string, onChange: () => void): () => void {
   if (!hasMatchMedia()) return () => undefined;
-  const query = window.matchMedia(ROOMY);
+  const query = window.matchMedia(media);
   query.addEventListener('change', onChange);
   return () => query.removeEventListener('change', onChange);
 }
-export function useRoomy(): boolean {
-  return useSyncExternalStore(subscribeRoomy, () => !hasMatchMedia() || window.matchMedia(ROOMY).matches, () => true);
+const matches = (media: string) => !hasMatchMedia() || window.matchMedia(media).matches;
+const subscribeTall = (onChange: () => void) => subscribeTo(TALL, onChange);
+const subscribeWide = (onChange: () => void) => subscribeTo(WIDE, onChange);
+const onServer = () => true;
+export function useCardLayout(): { readonly tall: boolean; readonly wide: boolean } {
+  const tall = useSyncExternalStore(subscribeTall, () => matches(TALL), onServer);
+  const wide = useSyncExternalStore(subscribeWide, () => matches(WIDE), onServer);
+  return { tall, wide };
 }
 
 /** The newest caption, and the newest one of the other speaker (older, so it is read first). */
@@ -109,7 +118,7 @@ export function Hint({ icon, children, compact = false }: { readonly icon: IconN
 /** A secondary action in the card's row (Use screen, Resume voice): its icon, and the label that names it. */
 export function RowAction({ icon, label, onClick }: { readonly icon: IconName; readonly label: string; readonly onClick: () => void }) {
   return (
-    <Button variant="secondary" size="md" leadingIcon={icon} onClick={onClick}>
+    <Button variant="secondary" size="md" leadingIcon={icon} className={styles.rowAction} onClick={onClick}>
       {label}
     </Button>
   );
@@ -128,7 +137,7 @@ export function HoldToTalk({
   readonly label: string;
   readonly talking: boolean;
   readonly talk: (down: boolean) => void;
-  /** In the closed card's row on a small screen: no icon, so it fits where Use screen sits at 320px. */
+  /** In the compact card's closed row: no icon, so it fits where Use screen sits at 320px. */
   readonly inRow?: boolean;
 }) {
   const down = useRef(false);

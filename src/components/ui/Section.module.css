@@ -12,6 +12,18 @@
   flex-direction: column;
   gap: var(--space-4);
 }
+/* The title and its one control share a line; the control wraps under a long title rather than squeezing it. */
+.titleRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4) var(--space-8);
+}
+.titleRow > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
 .title {
   font: var(--type-title-large);
   letter-spacing: var(--ls-title-large);

@@ -162,7 +162,7 @@ export interface I18nConfig {
 
 export type VoiceMarkingStyle = 'auto' | 'roll_call' | 'exceptions';
 
-/** Voice mode (extension of the PRD registry, docs/voice design §6). */
+/** Voice Agent (extension of the PRD registry, docs/voice design §6). */
 export interface VoiceConfig {
   /** voice.enabled */
   readonly enabled: boolean;

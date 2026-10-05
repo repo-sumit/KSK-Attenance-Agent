@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { useCardLayout } from '@/features/voice/VoiceDockParts';
 import { VoiceFloat } from '@/features/voice/VoiceFloat';
 import { I18nProvider } from '@/hooks/i18n';
 import { ServicesProvider } from '@/hooks/services';
@@ -22,6 +23,7 @@ function Harness({ initial, spy }: { readonly initial: VoiceState; readonly spy:
   const [state, setState] = useState(initial);
   const api: VoiceApi = {
     available: true,
+    marks: true,
     online: true,
     state,
     ...spy,
@@ -157,10 +159,13 @@ describe('the voice card (VoiceFloat while voice runs)', () => {
   });
 });
 
-/** A compact phone (320×568, 360×640): the roomy query does not match, so the dock opens closed. */
-function compactViewport() {
+/**
+ * A viewport for the card's two queries (D-136), answered separately: TALL is `(min-width: 360px) and (min-height:
+ * 700px)`, WIDE is `(min-width: 400px)`. jsdom has no matchMedia, so without a stub both read true.
+ */
+function viewport({ tall, wide }: { readonly tall: boolean; readonly wide: boolean }) {
   vi.stubGlobal('matchMedia', (query: string) => ({
-    matches: false,
+    matches: query === '(min-width: 400px)' ? wide : query.includes('(min-height: 700px)') ? tall : false,
     media: query,
     onchange: null,
     addEventListener: () => undefined,
@@ -170,6 +175,128 @@ function compactViewport() {
     dispatchEvent: () => false,
   }));
 }
+
+/** A compact phone (320×568, 360×640): neither query matches, so the card is one row, opened on demand. */
+function compactViewport() {
+  viewport({ tall: false, wide: false });
+}
+
+const MORE = /More voice controls/;
+const precedes = (a: Node, b: Node) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+
+describe('useCardLayout (D-136)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('reads both as true without matchMedia (and on the server), and each query separately otherwise', () => {
+    expect(renderHook(() => useCardLayout()).result.current).toEqual({ tall: true, wide: true });
+    viewport({ tall: false, wide: true });
+    expect(renderHook(() => useCardLayout()).result.current).toEqual({ tall: false, wide: true });
+    viewport({ tall: true, wide: false });
+    expect(renderHook(() => useCardLayout()).result.current).toEqual({ tall: true, wide: false });
+  });
+});
+
+describe('the two-line voice card (wide or tall, D-136)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const captions = [{ who: 'agent' as const, text: 'Which batch?', final: true }];
+
+  it('wide and short (a laptop window): the head holds the status toggle and Minimize; the caption, then the actions; push-to-talk opens from the toggle', () => {
+    viewport({ tall: false, wide: true });
+    renderDock({ captions });
+    const toggle = screen.getByRole('button', { name: MORE });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(toggle).toContainElement(screen.getByText('Listening'));
+    const head = toggle.parentElement!;
+    expect(head.className).toMatch(/head/);
+    expect(head).toContainElement(screen.getByRole('button', { name: 'Minimize voice controls' }));
+    // The actions have their own line under the caption: the status never shares a line with them.
+    const stop = screen.getByRole('button', { name: 'Stop voice' });
+    const useScreen = screen.getByRole('button', { name: 'Use screen' });
+    expect(head).not.toContainElement(stop);
+    expect(head).not.toContainElement(useScreen);
+    expect(precedes(screen.getByText(/Which batch\?/), useScreen)).toBe(true);
+    expect(screen.getByText('Stop voice')).not.toHaveClass('visually-hidden'); // Stop voice keeps its label
+    expect(screen.queryByRole('button', { name: 'Push to talk' })).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: 'Push to talk' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Minimize voice controls' })).toHaveLength(1);
+  });
+
+  it('wide and short with push-to-talk on: Hold to talk takes Use screen\'s place in the closed card, as on a phone', () => {
+    viewport({ tall: false, wide: true });
+    renderDock({ pushToTalk: true });
+    expect(screen.getAllByRole('button', { name: 'Hold to talk' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'Use screen' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: MORE }));
+    expect(screen.getByRole('button', { name: 'Use screen' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'Hold to talk' })).toHaveLength(1);
+  });
+
+  it('tall: the status is plain text (no toggle), push-to-talk always shows, Minimize sits in the head', () => {
+    viewport({ tall: true, wide: false });
+    renderDock();
+    expect(screen.queryByRole('button', { name: MORE })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Push to talk' })).toBeInTheDocument();
+    const minimize = screen.getByRole('button', { name: 'Minimize voice controls' });
+    const head = minimize.parentElement!;
+    expect(head.className).toMatch(/head/);
+    expect(head).toContainElement(screen.getByText('Listening'));
+    expect(head).not.toContainElement(screen.getByRole('button', { name: 'Stop voice' }));
+    expect(screen.getByText('Stop voice')).not.toHaveClass('visually-hidden');
+  });
+
+  it('has no Minimize while voice has stopped (Reconnect and Stop voice on the actions line)', () => {
+    viewport({ tall: false, wide: true });
+    renderDock({ status: 'error', error: 'dropped', canReconnect: true });
+    expect(screen.queryByRole('button', { name: 'Minimize voice controls' })).toBeNull();
+    const head = screen.getByText('Voice stopped').closest('[class*="head"]')!;
+    expect(head).not.toBeNull();
+    expect(head).not.toContainElement(screen.getByRole('button', { name: 'Reconnect' }));
+  });
+
+  it('wide and short with an error: the status is plain text, never a toggle that opens nothing', () => {
+    viewport({ tall: false, wide: true });
+    renderDock({ status: 'error', error: 'dropped', canReconnect: true });
+    expect(screen.queryByRole('button', { name: MORE })).toBeNull();
+    expect(document.querySelector('[aria-expanded]')).toBeNull();
+    expect(screen.getByText('Voice stopped')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reconnect' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Stop voice' })).toBeInTheDocument();
+  });
+});
+
+describe('the one-row compact card (narrow and short)', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('keeps the status toggle and the actions in one row, Stop voice as its icon, and Minimize only inside the opened controls', () => {
+    compactViewport();
+    renderDock();
+    const toggle = screen.getByRole('button', { name: MORE });
+    expect(toggle.parentElement).toContainElement(screen.getByRole('button', { name: 'Stop voice' }));
+    expect(toggle.parentElement).toContainElement(screen.getByRole('button', { name: 'Use screen' }));
+    expect(screen.getByText('Stop voice')).toHaveClass('visually-hidden'); // the name stays for screen readers
+    expect(screen.queryByRole('button', { name: 'Minimize voice controls' })).toBeNull();
+    fireEvent.click(toggle);
+    const minimize = screen.getByRole('button', { name: 'Minimize voice controls' });
+    expect(screen.getByRole('button', { name: 'Push to talk' }).parentElement).toContainElement(minimize);
+  });
+});
+
+describe('the compact card with an error', () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('shows the status as plain text beside Reconnect and Stop voice: nothing is left to open', () => {
+    compactViewport();
+    renderDock({ status: 'error', error: 'connect_failed', canReconnect: true });
+    expect(screen.queryByRole('button', { name: MORE })).toBeNull();
+    expect(document.querySelector('[aria-expanded]')).toBeNull();
+    const status = screen.getByText('Voice stopped');
+    const row = status.closest('[class*="rowCompact"]')!;
+    expect(row).toContainElement(screen.getByRole('button', { name: 'Reconnect' }));
+    expect(row).toContainElement(screen.getByRole('button', { name: 'Stop voice' }));
+  });
+});
 
 describe('the voice card on a compact screen', () => {
   afterEach(() => vi.unstubAllGlobals());

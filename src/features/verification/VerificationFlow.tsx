@@ -14,7 +14,7 @@ import { PermissionPrimer } from '../feedback/PermissionPrimer';
 import { DistanceChip, ProblemScreen } from '../feedback/ProblemScreen';
 import { useVerification } from './useVerification';
 import type { NavTab } from '@/config/journey';
-import type { VerificationPurpose } from '@/services/verification';
+import { purposeKey, type VerificationPurpose } from '@/services/verification';
 import { VerifyRun } from './VerifyRun';
 
 interface VerificationFlowProps {
@@ -36,9 +36,9 @@ export function VerificationFlow({ purpose, area, subtitle, passedSubtitle, onPa
   const { faceCapture, faceMatch } = useServices();
   const flow = useVerification(purpose, onPassed);
   const { phase } = flow;
-  // Voice mode's "check again": the same retry as this screen's own button, only where the screen offers one.
+  // Voice Agent's "check again": the same retry as this screen's own button, only where the screen offers one.
   useVoiceBusEvent('verify_retry', (e) => {
-    if (purpose.kind === 'session' && purpose.key === e.sessionKey && phase.kind === 'problem' && phase.retry !== 'none') flow.retry();
+    if (purposeKey(purpose) === e.purpose && phase.kind === 'problem' && phase.retry !== 'none') flow.retry();
   });
   const j = ctx.journey.verification;
   const help = { label: t('common.needHelp'), onPress: () => toast.show(t(ctx.journey.homeVariant === 'institute' ? 'common.helpToastPrincipal' : 'common.helpToast')) };

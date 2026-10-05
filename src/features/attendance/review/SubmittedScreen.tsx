@@ -37,11 +37,13 @@ export function SubmittedScreen() {
   const summary = summaryLine(t, format, summaryItems(s.counts, ctx.journey.marking.statuses, summaryLabels(t, format)));
   const name = label(card);
   const saved = s.pendingSync && sync.phase !== 'syncing';
+  // Sent, but someone else had submitted this session first: never "Submitted".
+  const refused = s.rejected;
   return (
     <ResultScreen
-      tone={saved ? 'warning' : 'success'}
-      icon={saved ? 'cloud-upload' : 'circle-check'}
-      title={saved ? t('result.savedTitle') : t('result.submittedTitle')}
+      tone={saved || refused ? 'warning' : 'success'}
+      icon={refused ? 'alert' : saved ? 'cloud-upload' : 'circle-check'}
+      title={refused ? t('sync.rejected') : saved ? t('result.savedTitle') : t('result.submittedTitle')}
       sub={summary}
       meta={
         <>

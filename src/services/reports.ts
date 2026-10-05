@@ -9,22 +9,22 @@
  * and the correction log keep a detail view with date ranges and print.
  */
 import type { ReportBlock, DateRangeKind } from '@/config/types';
-import { effectiveMarks, type AttendanceSubmission, type Correction } from '@/domain/attendance';
+import { effectiveMarks, type Correction } from '@/domain/attendance';
 import type { Batch, StaffMember, Student, Trade } from '@/domain/entities';
 import { presenceWeight } from '@/domain/marking';
-import type { Mark } from '@/domain/status';
 import { addDays, compareDates, endOfMonth, shiftMonth, startOfMonth, startOfWeek, toLocalDate, type LocalDate } from '@/lib/time';
 import type { AttendanceRepository, CorrectionRepository, StaffAttendanceRepository } from '@/repositories/interfaces';
 import type { SessionContext } from './context';
 import type { CorrectionLogEntry, CorrectionService } from './corrections';
+import { average, dayShare, pct, shown, standingFigures, studentDays, tradeOf, type Rows } from './report-math';
+import type { AttendanceRegister } from './report-register';
+import { monthlyRegister, registerMonthsFor } from './report-register-service';
 
 export interface DateRange {
   readonly kind: DateRangeKind;
   readonly from: LocalDate;
   readonly to: LocalDate;
 }
-
-export const pct = (part: number, whole: number) => (whole > 0 ? Math.round((part / whole) * 100) : null);
 
 /**
  * One student's attendance over the window: the figure exam eligibility turns on (PRD §19.2).
@@ -121,16 +121,6 @@ export type ReportData =
 type Delay = (ms: number) => Promise<void>;
 const noDelay: Delay = () => Promise.resolve();
 
-/** Unrounded average over every student-day. */
-const average = (standings: readonly StudentStanding[]) => {
-  const days = standings.reduce((a, s) => a + s.daysMarked, 0);
-  return days ? (standings.reduce((a, s) => a + s.daysPresent, 0) / days) * 100 : null;
-};
-
-/** Rounded for display, but a figure below the threshold never rounds up to it ("74.6%" shows as 74, not 75 ⚠). */
-const shown = (raw: number | null, threshold: number) => (raw === null ? null : raw < threshold ? Math.min(Math.round(raw), threshold - 1) : Math.round(raw));
-type Rows = ReadonlyArray<{ readonly sub: AttendanceSubmission; readonly marks: Readonly<Record<string, Mark>> }>;
-
 /**
  * Leaderboard positions (brief §7: "1. Amit 94% · 2. Sneha 88%"): 1 is the best
  * attendance; equal percentages keep a stable order (more days present, then
@@ -207,18 +197,17 @@ export class ReportService {
     return [...batches].sort((a, b) => tradeIndex(a) - tradeIndex(b) || a.shift - b.shift || a.unit - b.unit);
   }
 
-  private trade(ctx: SessionContext, batch: Batch): Trade {
-    const trade = ctx.data.trades.find((t) => t.id === batch.tradeId);
-    if (!trade) throw new Error(`Batch ${batch.id} has no trade`);
-    return trade;
+  private async submissions(ctx: SessionContext, batchIds: readonly string[], range: DateRange): Promise<Rows> {
+    return (await this.records(ctx, batchIds, range)).rows;
   }
 
-  private async submissions(ctx: SessionContext, batchIds: readonly string[], range: DateRange): Promise<Rows> {
+  /** The records reports read, with corrections folded, and the corrections themselves. */
+  private async records(ctx: SessionContext, batchIds: readonly string[], range: DateRange): Promise<{ rows: Rows; corrections: readonly Correction[] }> {
     const subs = (await this.attendance.listSubmissions({ batchIds, from: range.from, to: range.to }))
       // Reports use the batch's own daily/half/period records; a subject instructor sees their subject's sessions.
       .filter((s) => (ctx.access.subjectId ? s.address.subjectId === ctx.access.subjectId : !s.address.subjectId));
     const corrections: Correction[] = await this.corrections.listForAttendance(subs.map((s) => s.id));
-    return subs.map((sub) => ({ sub, marks: effectiveMarks(sub, corrections) }));
+    return { rows: subs.map((sub) => ({ sub, marks: effectiveMarks(sub, corrections) })), corrections };
   }
 
   /** Per student, per day: the share of that day's sessions present (sessions of one day count as one day). */
@@ -227,19 +216,7 @@ export class ReportService {
     const mine = rows.filter((r) => r.sub.address.batchId === batch.id);
     return ctx.data.students
       .filter((s) => s.batchId === batch.id)
-      .map((student) => {
-        const days = new Map<string, { w: number; n: number }>();
-        for (const { sub, marks } of mine) {
-          const m = marks[student.id];
-          if (!m) continue;
-          const day = days.get(sub.address.date) ?? { w: 0, n: 0 };
-          days.set(sub.address.date, { w: day.w + presenceWeight(m), n: day.n + 1 });
-        }
-        const daysPresent = [...days.values()].reduce((a, d) => a + d.w / d.n, 0);
-        const raw = days.size ? (daysPresent / days.size) * 100 : null;
-        const atRisk = raw !== null && days.size >= atRiskMinDays && raw < threshold;
-        return { student, pct: shown(raw, threshold), daysPresent: Math.round(daysPresent * 10) / 10, daysMarked: days.size, atRisk };
-      });
+      .map((student) => ({ student, ...standingFigures([...studentDays(mine, student.id).values()].map(dayShare), threshold, atRiskMinDays) }));
   }
 
   /** "My attendance": this month's staff record, plus a short monthly trend (report.trendMonths). */
@@ -278,7 +255,7 @@ export class ReportService {
       batches: batches.map((batch) => {
         const standings = this.standings(ctx, batch, rows);
         const avg = average(standings);
-        return { batch, trade: this.trade(ctx, batch), students: standings.length, pct: shown(avg, threshold), low: avg !== null && avg < threshold, atRisk: standings.filter((s) => s.atRisk).length };
+        return { batch, trade: tradeOf(ctx.data, batch), students: standings.length, pct: shown(avg, threshold), low: avg !== null && avg < threshold, atRisk: standings.filter((s) => s.atRisk).length };
       }),
     };
   }
@@ -310,7 +287,7 @@ export class ReportService {
         const students = rankStandings(this.standings(at, batch, rows), 'low_first')
           .filter((r) => r.standing.atRisk)
           .map((r) => ({ ...r.standing, rank: r.rank }));
-        return { batch, trade: this.trade(ctx, batch), students };
+        return { batch, trade: tradeOf(ctx.data, batch), students };
       })
       .filter((g) => g.students.length > 0);
     return { range, threshold, groups, batchesChecked: batches.length };
@@ -330,6 +307,17 @@ export class ReportService {
       staffPct = pct(records.reduce((a, r) => a + presenceWeight({ status: r.status }), 0), records.length);
     }
     return { range, pct: shown(avg, threshold), low: avg !== null && avg < threshold, students: ctx.data.students.length, batches: ctx.data.batches.length, staffPct };
+  }
+
+  /** The months a register can be downloaded for: this month and the one before (first days, newest first). */
+  registerMonths(ctx: SessionContext): readonly LocalDate[] {
+    return registerMonthsFor(toLocalDate(ctx.clock.now()));
+  }
+
+  /** The monthly register of the given batches, in board order; null when any batch is outside this user's reports or the month is not offered. */
+  async register(ctx: SessionContext, request: { readonly batchIds: readonly string[]; readonly month: LocalDate }): Promise<AttendanceRegister | null> {
+    await this.delay(350);
+    return monthlyRegister(ctx, request, { batchesInScope: (c) => this.batchesInScope(c), records: (c, ids, range) => this.records(c, ids, range) });
   }
 
   /** Detail reports (range switch + print). */

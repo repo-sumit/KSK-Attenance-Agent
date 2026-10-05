@@ -8,6 +8,9 @@ import type { LocalTime } from '@/lib/time';
 import type { PersonaId } from './personas';
 import { PRESETS, PRESETS_VERSION, type DemoPreset } from './presets';
 
+/** Where the demo's server-owned data lives: the shared Supabase project (when configured) or this device (D-143). */
+export type DataChoice = 'shared' | 'device';
+
 export type DemoClockSetting = { readonly mode: 'fixed'; readonly time: LocalTime } | { readonly mode: 'real' };
 
 export interface DemoState {
@@ -22,6 +25,8 @@ export interface DemoState {
   readonly config: ConfigLayer;
   readonly simulation: SimulationState;
   readonly clock: DemoClockSetting;
+  /** Read once at boot: a change applies after the reload the panel does. Presets never change it. */
+  readonly data: DataChoice;
 }
 
 /** 10:15 AM: Shift 1 open, Shift 2 opens at 2 PM, timetable Period 3 is "Now". */
@@ -36,6 +41,7 @@ export const DEFAULT_DEMO_STATE: DemoState = {
   config: {},
   simulation: DEFAULT_SIMULATION,
   clock: { mode: 'fixed', time: DEFAULT_DEMO_TIME },
+  data: 'shared',
 };
 
 /**
@@ -57,7 +63,7 @@ export function applyPresetState(s: DemoState, preset: DemoPreset, keepPersona =
 }
 
 /**
- * A stored preset keeps the configuration it had when it was applied, so a code update that changes a preset (Voice mode
+ * A stored preset keeps the configuration it had when it was applied, so a code update that changes a preset (Voice Agent
  * on in every story, version 2) would never reach a browser that already applied it. When the stored version differs, the
  * stored preset is applied again (the persona and the sign-in stay). A state with no preset (`presetId: null`: the
  * presenter's own panel changes) or one the code no longer has is left alone.
@@ -76,6 +82,7 @@ export function decodeDemoState(raw: unknown): DemoState {
     ...s,
     // A state stored before presets were versioned came from version 1.
     presetsVersion: typeof s.presetsVersion === 'number' ? s.presetsVersion : 1,
+    data: s.data === 'device' ? 'device' : 'shared',
     simulation: { ...DEFAULT_SIMULATION, ...s.simulation, permissions: { ...DEFAULT_SIMULATION.permissions, ...s.simulation?.permissions } },
   });
 }

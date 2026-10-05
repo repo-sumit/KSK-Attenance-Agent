@@ -8,6 +8,7 @@ import { useServices } from '@/hooks/services';
 import { useJourney, useSession } from '@/hooks/session';
 import { useQuery } from '@/hooks/useQuery';
 import { rankStandings, type LeaderboardSort } from '@/services/reports';
+import { RegisterDownloadButton } from '../register/RegisterDownloadSheet';
 import { StandingList, StandingPanel } from './StandingList';
 import styles from './StandingList.module.css';
 
@@ -16,7 +17,7 @@ import styles from './StandingList.module.css';
  * §7): rank, name, %, at risk flagged. The ranking is the service's
  * (rankStandings), so the at-risk list numbers students the same way.
  */
-export function Leaderboard({ batchId, expected, onHide }: { readonly batchId: string; readonly expected: number; readonly onHide: () => void }) {
+export function Leaderboard({ batchId, subject, expected, onHide }: { readonly batchId: string; readonly subject: string; readonly expected: number; readonly onHide: () => void }) {
   const { t } = useI18n();
   const ctx = useSession();
   const j = useJourney();
@@ -54,10 +55,13 @@ export function Leaderboard({ batchId, expected, onHide }: { readonly batchId: s
         />
       </div>
       <StandingList as="ol" items={rankStandings(data, sort)} flagAtRisk />
-      {/* A long list can be closed from its end, back to its batch (D-053). */}
-      <Button variant="ghost" size="md" trailingIcon="chevron-up" className={styles.hide} onClick={onHide}>
-        {t('reports.hideStudents')}
-      </Button>
+      <div className={styles.end}>
+        {j.reports.pdfDownload && <RegisterDownloadButton target={{ batchIds: [batchId], subject, scope: { kind: 'batch' } }} />}
+        {/* A long list can be closed from its end, back to its batch (D-053). */}
+        <Button variant="ghost" size="md" trailingIcon="chevron-up" onClick={onHide}>
+          {t('reports.hideStudents')}
+        </Button>
+      </div>
     </StandingPanel>
   );
 }

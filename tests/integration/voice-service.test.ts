@@ -50,11 +50,11 @@ vi.mock('@/services/voice/audio/browser-audio', () => ({
 const lastDeps = () => seen.executorDeps[seen.executorDeps.length - 1] as ExecutorDeps;
 
 describe('VoiceService', () => {
-  it('has no plan for the principal or with voice off', async () => {
+  it('has no plan with voice off; the principal has one without a marking flow (D-139)', async () => {
     const off = setup();
     expect(off.app.services.voice.plan(await signIn(off.app, 'TR-10432'), 'en')).toBeNull();
     const on = setup({ voice: { enabled: true } });
-    expect(on.app.services.voice.plan(await signIn(on.app, 'PR-2741'), 'en')).toBeNull();
+    expect(on.app.services.voice.plan(await signIn(on.app, 'PR-2741'), 'en')).toMatchObject({ scope: 'institute', marking: null });
   });
 
   it('start() returns null when plan() is null, builds nothing and leaves current() empty', async () => {
@@ -62,8 +62,6 @@ describe('VoiceService', () => {
     const off = setup();
     const ctx = await signIn(off.app, 'TR-10432');
     expect(off.app.services.voice.start(ctx, 'en')).toBeNull();
-    const principal = setup({ voice: { enabled: true } });
-    expect(principal.app.services.voice.start(await signIn(principal.app, 'PR-2741'), 'en')).toBeNull();
     expect(seen.executorDeps.length).toBe(before);
     expect(off.app.services.voice.current()).toBeNull();
   });
@@ -81,6 +79,22 @@ describe('VoiceService', () => {
     expect(await scripted.toolCall('get_trades')).toMatchObject({ ok: true });
     session.stop();
     expect(session.getState().status).toBe('ended');
+  });
+
+  it('runs a scripted principal session: today\'s state, the institute tools, the first name without a title', async () => {
+    const env = setup({ voice: { enabled: true } });
+    env.simulation.update({ voice: 'scripted' });
+    const session = env.app.services.voice.start(await signIn(env.app, 'PR-2741'), 'en')!;
+    await vi.waitFor(() => expect(session.getState().status).toBe('listening'));
+    const scripted = env.app.services.voice.scripted;
+    expect(scripted.texts[0]).toMatch(/^\[APP\] Session started\. Today: \d+ of \d+ batches submitted, \d+ staff not marked yet\. .+ then ask "What do you need\?"\. Then wait\.$/);
+    expect(scripted.lastSetup!.tools.map((t) => t.name)).toEqual([
+      'get_status', 'get_reports_overview', 'get_batch_report', 'get_student_report', 'get_at_risk', 'show_report', 'download_register',
+      'get_staff_today', 'mark_staff', 'navigate', 'get_announcements', 'end_voice_session',
+    ]);
+    expect(scripted.lastSetup!.systemInstruction).toContain('You are speaking with Anil, the principal of');
+    expect(await scripted.toolCall('navigate', { to: 'staff_attendance' })).toMatchObject({ ok: true, screen: 'staff_attendance' });
+    session.stop();
   });
 
   it('chooses the transport from the simulation at the moment of start: scripted, then live, then scripted again', async () => {

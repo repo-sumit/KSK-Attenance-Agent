@@ -41,7 +41,7 @@ interface StudentRowProps {
   readonly leaveTypes: readonly LeaveType[];
   readonly leaveRange: { readonly min: string; readonly max: string } | null;
   readonly attention: boolean;
-  /** Voice mode is on this student (an outline, never a status tint, D-070). */
+  /** Voice Agent is on this student (an outline, never a status tint, D-070). */
   readonly current?: boolean;
   /** Changes on every focus of the current row (the agent asked for this student again): it scrolls into view again. */
   readonly focusSeq?: number;

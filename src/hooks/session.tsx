@@ -31,12 +31,21 @@ export function SessionProvider({ children }: { readonly children: ReactNode }) 
 
   useEffect(() => {
     let alive = true;
-    const apply = () =>
-      services.session.load().then((ctx) => {
-        if (alive) setState(ctx ? { status: 'ready', ctx } : { status: 'signed_out' });
+    // Only the latest load may set the state: with a network-backed source (D-143) an earlier, faster load
+    // ("nobody signed in yet") can finish after a later one started.
+    let latest = 0;
+    const apply = () => {
+      const run = ++latest;
+      return services.session.load().then((ctx) => {
+        if (alive && run === latest) setState(ctx ? { status: 'ready', ctx } : { status: 'signed_out' });
       });
+    };
     void apply();
-    const unsubscribe = bus.subscribe(['session', 'config', 'face', 'demo'], () => void apply());
+    const unsubscribe = bus.subscribe(['session', 'config', 'face', 'demo'], (topic) => {
+      // A sign-in while signed out is loading, not signed out: guards wait instead of sending the user to login.
+      if (topic === 'session') setState((s) => (s.status === 'signed_out' ? { status: 'loading' } : s));
+      void apply();
+    });
     return () => {
       alive = false;
       unsubscribe();

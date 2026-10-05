@@ -36,11 +36,29 @@
   color: var(--color-icon-secondary);
   transition: transform var(--motion-base) var(--motion-ease);
 }
-.open > .button .chevron {
+/* With an action: the toggle takes the free width and keeps the row's padding; the action sits at the row's end. */
+.header {
+  display: flex;
+  align-items: center;
+}
+.header > .button {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+.action {
+  display: flex;
+  align-items: center;
+  flex: none;
+  padding-inline-end: var(--space-16);
+}
+.open > .button .chevron,
+.open > .header .chevron {
   transform: rotate(180deg);
 }
 /* Open: one full-bleed divider under the summary; the panel sits on the same white surface, set apart by it, not by a tint. */
-.open > .button {
+.open > .button,
+.open > .header {
   border-bottom: var(--divider-thin) solid var(--color-border-subtle);
 }
 .panel {

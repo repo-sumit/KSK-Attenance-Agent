@@ -25,7 +25,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: `npm run build && npx next start -p ${PORT}`,
+    // Always the on-device mock (D-143), even when an env file names a Supabase project.
+    command: `NEXT_PUBLIC_DATA_SOURCE=mock npm run build && npx next start -p ${PORT}`,
     url: `http://localhost:${PORT}/login`,
     reuseExistingServer: !process.env.CI,
     timeout: 240_000,

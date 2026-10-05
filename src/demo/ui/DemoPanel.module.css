@@ -150,6 +150,12 @@
   letter-spacing: var(--ls-label-small);
   color: var(--color-text-primary);
 }
+/* A read-only value in a row (the Data row when there is nothing to switch to). */
+.value {
+  font: var(--type-body-medium);
+  letter-spacing: var(--ls-body-medium);
+  color: var(--color-text-primary);
+}
 .confirm {
   display: flex;
   flex-direction: column;

@@ -1,4 +1,4 @@
-// Spike (voice mode, Task 20, Step 2): which prebuilt voice sounds right for Maharashtra?
+// Spike (Voice Agent, Task 20, Step 2): which prebuilt voice sounds right for Maharashtra?
 //
 // For each candidate voice it opens a Gemini Live session (Node, server to server, with the API key), has the model
 // speak six fixed lines (a Marathi greeting and roll call, an Indian English greeting and a counts sentence, two

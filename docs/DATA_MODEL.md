@@ -54,8 +54,8 @@ interface SessionAddress { batchId; date /* YYYY-MM-DD, IST */; slot; subjectId?
 | Record | Fields | Lifecycle |
 |---|---|---|
 | `AttendanceDraft` | `sessionKey`, `marks`, `sources?` (per student: `via` `tap` / `voice`, `at`; `heard` (≤ 160 characters) in the live draft only, saved only when `voice.transcriptRetentionDays` > 0, D-113), `updatedAt` | Saved on every change by `MarkingDraftService` (below). Survives leaving the screen and a reload. Refused once the session is submitted. Defaults and presets (OJT, carried leave) have no source |
-| `AttendanceSubmission` | `id`, `sessionKey`, `address`, `marks`, `markedBy`, `deviceTimestamp`, `serverTimestamp?`, `location?` (lat, lng, `accuracyM`, `distanceM?`, `source?`: `device` / `simulated`), `syncState` (`pending` / `synced` / `failed`) | **Written once** (atomic check-and-set on the session key), then locked for everyone. The device and server timestamps are both kept (PRD open question 2, clock trust) |
-| `Correction` | `correctionId`, `attendanceId`, `studentId`, `oldMark`, `newMark`, `reason`, `actorId`, `timestamp` | **Append-only.** The submission is never changed; `effectiveMarks(submission, corrections)` folds them in append order |
+| `AttendanceSubmission` | `id`, `sessionKey`, `address`, `marks`, `markedBy`, `deviceTimestamp`, `serverTimestamp?`, `location?` (lat, lng, `accuracyM`, `distanceM?`, `source?`: `device` / `simulated`), `syncState` (`pending` / `synced` / `failed` / `rejected`: the server refused it for good because another device submitted that session first; kept on the device, never pushed again, and the server's copy wins, D-143) | **Written once** (atomic check-and-set on the session key), then locked for everyone. The device and server timestamps are both kept (PRD open question 2, clock trust) |
+| `Correction` | `correctionId`, `attendanceId`, `studentId`, `oldMark`, `newMark`, `reason`, `actorId`, `timestamp` | **Append-only.** The submission is never changed; `effectiveMarks(submission, corrections)` folds them in append order. On Supabase the table also has `seq` (a server identity, never sent by the client): every device lists corrections by (timestamp, `seq`, `correctionId`), with this device's unsent outbox last, so the order is the same everywhere (D-143) |
 | `StaffAttendanceRecord` | `id`, `staffId`, `date`, `status`, `source` (`self` / `principal`), `markedBy`, `deviceTimestamp`, `location?`, `syncState` | One per staff member per day across both paths; the first mark wins |
 | `OfflineQueueItem` | `id`, `kind` (`attendance_submission` / `staff_attendance`), `recordId`, `label`, `enqueuedAt`, `attempts`, `lastError?` | Created for every locked record; removed when the push succeeds |
 
@@ -90,10 +90,10 @@ Services add what the screens need on top: `BatchPackService.list` returns `Pack
 | Interface | Responsibility | Mock | API (later) |
 |---|---|---|---|
 | `MasterDataRepository` | Institutes, trades, subjects, batches, students, staff, timetable, OJT; one batch's roster for a pack download or refresh (`getBatchRoster`) | `src/data/mock` | `GET /institutes?code=`, `GET /institutes/{id}/staff?trainerId=`, `GET /institutes/{id}/bundle`, `GET /institutes/{id}/batches/{batchId}/roster` |
-| `AttendanceRepository` | Drafts; `createSubmission` (write-once); list by batch or date range; mark synced | `MockDatabase` | `GET /attendance?batchIds=&from=&to=`; pushes go through `SyncGateway` |
+| `AttendanceRepository` | Drafts; `createSubmission` (write-once); list by batch or date range; mark synced or rejected | `MockDatabase` | `GET /attendance?batchIds=&from=&to=`; pushes go through `SyncGateway` |
 | `CorrectionRepository` | Append and list corrections (append-only) | `MockDatabase` | `POST /attendance/{attendanceId}/corrections`, `GET /corrections?…` |
-| `StaffAttendanceRepository` | `get`, `getById`, `listForDate`, `listBetween`, `create` (one per day), `markSynced` | `MockDatabase` | reads from the API; pushes through `SyncGateway` |
-| `FaceEnrolmentRepository` | Enrolment status (matching simulated) | `MockDatabase` | provider-specific (the matcher owns any template) |
+| `StaffAttendanceRepository` | `get`, `getById`, `listForDate`, `listBetween`, `create` (one per day), `markSynced`, `markRejected` | `MockDatabase` | reads from the API; pushes through `SyncGateway` |
+| `FaceEnrolmentRepository` | Enrolment status (matching simulated); `remove` for the demo's face toggles | `MockDatabase` | provider-specific (the matcher owns any template) |
 | `VerificationRepository` | Passes per user, purpose and day | `MockDatabase` | device-local |
 | `OfflineQueueRepository` | The outbox | `MockDatabase` | device-local (IndexedDB) |
 | `BatchPackRepository` | Downloaded batches | `MockDatabase` | device-local, filled from `GET /institutes/{id}/bundle` |
@@ -103,6 +103,12 @@ Services add what the screens need on top: `BatchPackService.list` returns `Pack
 | `VoiceUsageRepository` | Voice seconds used per trainer per IST day (`get`, `add`), for the daily cap (D-089) | `MockDatabase` (`voiceUsage`) | `GET /voice/usage?staffId=&date=`, `POST /voice/usage` |
 
 The API stubs are in `src/repositories/api/repositories.ts`. Each throws `NotImplementedError` and documents the endpoint it will call.
+
+A third implementation, `src/repositories/supabase/*` (D-143), serves the server-owned interfaces (master data, announcements, attendance, corrections, staff attendance, voice usage, face enrolment, the sync gateway) from the shared Supabase project, and keeps the device-owned ones (verification, offline queue, packs, session, preferences) on `MockDatabase`. Its tables mirror the domain types column for column (plus `corrections.seq`); rows are validated before use (`validate.ts`); see `docs/SUPABASE.md`.
+
+## The monthly register (D-137)
+
+`ReportService.register` returns an `AttendanceRegister` (`src/services/report-register.ts`): the institute, the month (its first day), `to` (the month's end, or today for the current month), `today`, the threshold and `atRiskMinDays`, the generation time from the injected clock, who prepared it (name and role), and one `BatchRegister` per batch. A `BatchRegister` has the batch and trade, the instructor who marked most (or null), every day of the month (`RegisterDay`: date, weekday, kind `class` / `none` / `pending` (today, not submitted yet) / `upcoming`, and the day's weighted present count), one `RegisterRow` per student (the student, a `RegisterCell` or null per day with the statuses after corrections in slot order, the day's presence share and a corrected flag, then days present by presence weight, absent and leave days, marked days, % with threshold-safe rounding, at risk), the class days, the batch % and whether it is low, how many meet the threshold and how many are at risk, the corrections (`RegisterCorrection`: date, student name and roll, from and to marks, reason, the actor's name, when) and how a day is recorded (`once`, `twice`, `period`). Nothing is stored: it is computed from the records on each request.
 
 ## Mock data (`src/data/mock`)
 
@@ -120,4 +126,4 @@ The API stubs are in `src/repositories/api/repositories.ts`. Each throws `NotImp
 
 ## Storage
 
-All mock records live in localStorage under `ksk:v1:<collection>`, through `KeyValueStore` (`src/lib/kv-store.ts`). `MockDatabase` reseeds on first use, on a schema version bump and when the calendar day changes. **Reset Demo** clears all three namespaces (`ksk:v1`, `ksk-demo:v1`, `ksk-prefs`). IndexedDB can replace localStorage behind the same interface if the data grows.
+All mock records live in localStorage under `ksk:v1:<collection>`, through `KeyValueStore` (`src/lib/kv-store.ts`). `MockDatabase` reseeds on first use, on a schema version bump and when the calendar day changes. On the Supabase source it holds only the device-owned data and this device's records until they sync, and a day change keeps the queue, unsynced records, corrections, the device's downloaded packs and waiting face flags (a demo preset or Reset writes the preset's story packs); a live server read removes this device's synced records the server no longer has; cached server answers, the correction outbox and the face outbox live in `ksk-cache:v1`. **Reset Demo** clears `ksk:v1`, `ksk-demo:v1` (keeping the Data choice), `ksk-prefs` and `ksk-cache:v1`. IndexedDB can replace localStorage behind the same interface if the data grows.

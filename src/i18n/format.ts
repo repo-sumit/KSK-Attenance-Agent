@@ -22,6 +22,7 @@ export function createFormatters(locale: string) {
   const dayMonth = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', timeZone: TIME_ZONE });
   const dayMonthYear = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'short', year: 'numeric', timeZone: TIME_ZONE });
   const monthShort = new Intl.DateTimeFormat(locale, { month: 'short', timeZone: TIME_ZONE });
+  const monthYear = new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric', timeZone: TIME_ZONE });
   const number = new Intl.NumberFormat(locale);
   const decimal = new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -73,6 +74,8 @@ export function createFormatters(locale: string) {
     dayMonthYear: (date: LocalDate) => dateText(dayMonthYear, atNoon(date)),
     /** "Sep" */
     monthShort: (date: LocalDate) => dateText(monthShort, atNoon(date)),
+    /** "September 2026" */
+    monthYear: (date: LocalDate) => monthYear.format(atNoon(date)),
     number: (n: number) => number.format(n),
     percent: (n: number) => `${number.format(n)}%`,
     /** PRD §8.2: metres under 1 km, kilometres to two decimals above. */

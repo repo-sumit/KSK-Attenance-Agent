@@ -1,4 +1,4 @@
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect, expectNoOverflow, nav, openProfileMenu, preset, test } from './fixtures';
 
 const WIDE = [
@@ -8,6 +8,26 @@ const WIDE = [
   { width: 1440, height: 900 },
   { width: 1920, height: 1080 },
 ];
+
+/**
+ * A box measured once the element has stopped moving: its (and its subtree's) animations and transitions have ended
+ * and two measurements a frame apart agree. A sheet that opens with a transition is never measured mid-way.
+ */
+async function settledBox(locator: Locator) {
+  await expect(locator).toBeVisible();
+  await locator.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished.catch(() => undefined))));
+  let previous = await locator.boundingBox();
+  await expect
+    .poll(async () => {
+      await locator.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve(undefined))));
+      const next = await locator.boundingBox();
+      const same = JSON.stringify(next) === JSON.stringify(previous);
+      previous = next;
+      return same;
+    })
+    .toBe(true);
+  return previous!;
+}
 
 /** The avatar is the right-most control of the header (tooling such as the demo trigger sits left of it). */
 async function expectAvatarRightMost(page: Page, where: string) {
@@ -190,8 +210,10 @@ test('profile menu: a bottom sheet on phones, anchored under the avatar on deskt
   // The logout confirmation: its two actions side by side at the DS button width, never stretched across the sheet.
   await (await openProfileMenu(page)).getByRole('button', { name: 'Logout' }).click();
   const confirm = page.getByRole('dialog', { name: 'Log out?' });
-  const logout = (await confirm.getByRole('button', { name: 'Logout' }).boundingBox())!;
-  const cancel = (await confirm.getByRole('button', { name: 'Cancel' }).boundingBox())!;
+  // Measured once the confirmation's opening transition has ended (it was measured mid-transition once).
+  await settledBox(confirm);
+  const logout = await settledBox(confirm.getByRole('button', { name: 'Logout' }));
+  const cancel = await settledBox(confirm.getByRole('button', { name: 'Cancel' }));
   expect(logout.width).toBeLessThanOrEqual(281);
   expect(cancel.width).toBeLessThanOrEqual(281);
   expect(Math.abs(logout.y - cancel.y)).toBeLessThanOrEqual(1);

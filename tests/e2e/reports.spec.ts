@@ -1,4 +1,5 @@
-import type { Page } from '@playwright/test';
+import { readFile } from 'node:fs/promises';
+import type { Download, Page } from '@playwright/test';
 import { expect, nav, preset, test } from './fixtures';
 
 const pcts = async (page: Page, rows: ReturnType<Page['locator']>) =>
@@ -20,7 +21,8 @@ test('reports: my attendance, my batches as a sortable leaderboard, at-risk stud
   await expect(me.getByText('Last 3 months')).toBeVisible();
 
   const batches = page.getByRole('region', { name: 'My batches' });
-  const row = batches.getByRole('button', { name: /Electrician · Shift 1 · Unit 2/ });
+  // The row's toggle (its name goes on to the student count), not the row's "Download register for …" button.
+  const row = batches.getByRole('button', { name: /Electrician · Shift 1 · Unit 2.*students/ });
   await expect(row).toHaveAttribute('aria-expanded', 'false');
   await row.click();
   await expect(row).toHaveAttribute('aria-expanded', 'true');
@@ -109,10 +111,86 @@ test('principal reports: the institute, every batch by trade, at-risk across the
   await expect(institute).toContainText('17 batches');
   await expect(institute).toContainText('Staff attendance');
   const batches = page.getByRole('region', { name: 'Batch attendance' });
-  await expect(batches.getByRole('button')).toHaveCount(17);
+  await expect(batches.getByRole('button', { name: /Shift \d+ · Unit \d+.*students/ })).toHaveCount(17);
+  // Every batch row also downloads its own register (owner follow-up to D-137).
+  await expect(batches.getByRole('button', { name: /^Download register for .+ · Shift \d+ · Unit \d+$/ })).toHaveCount(17);
+  // One register download per trade on its label line (D-137).
+  await expect(batches.getByRole('button', { name: /^Trade register: / })).toHaveCount(5);
   await expect(batches.getByRole('heading', { name: 'Welder' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Offline data' })).toHaveCount(0);
   await page.getByRole('link', { name: /Correction log/ }).click();
   await page.waitForURL(/\/reports\/view\?r=correction_log/);
   await expect(page.getByText(/Kiran Wagh/)).toBeVisible();
+});
+
+const saved = async (download: Download) => {
+  expect(download.suggestedFilename()).toMatch(/^KSK-register_.*\.html$/);
+  return readFile(await download.path(), 'utf8');
+};
+
+test('register download: a batch for last month, then a whole trade (D-137)', async ({ page, consoleErrors }) => {
+  void consoleErrors;
+  await preset(page, 'batch');
+  await nav(page, 'Reports').click();
+  await page.waitForURL(/\/reports$/);
+  const batches = page.getByRole('region', { name: 'My batches' });
+  await batches.getByRole('button', { name: /Electrician · Shift 1 · Unit 2.*students/ }).click();
+  const students = batches.locator('ol > li');
+  await expect(students).toHaveCount(31);
+  const lines = (await students.first().innerText()).split('\n').map((l) => l.trim());
+  const student = lines.find((l) => /^[A-Z][a-z]+( [A-Z][a-z]+)+$/.test(l));
+  expect(student, lines.join(' | ')).toBeTruthy();
+
+  const open = batches.getByRole('button', { name: 'Download register', exact: true });
+  await open.click();
+  const sheet = page.getByRole('dialog', { name: 'Download attendance register' });
+  await expect(sheet).toContainText('Electrician · Shift 1 · Unit 2');
+  const months = sheet.getByRole('radio');
+  await expect(months).toHaveCount(2);
+  await expect(months.first()).toBeChecked();
+  await expect(sheet.locator('label').first()).toContainText(/so far$/);
+  await months.nth(1).check();
+  const [batchFile] = await Promise.all([page.waitForEvent('download'), sheet.getByRole('button', { name: 'Download', exact: true }).click()]);
+  const html = await saved(batchFile);
+  expect(html).toContain('Monthly Attendance Register');
+  expect(html).toContain(student!);
+  // The emblem was fetched from the app and embedded; the file loads nothing from the network.
+  expect(html).toContain('.emblem{background:url("data:image/png;base64,');
+  await expect(page.getByRole('status').filter({ hasText: 'Register downloaded' })).toBeVisible();
+  await expect(sheet).toHaveCount(0);
+  await expect(open).toBeFocused();
+
+  await batches.getByRole('button', { name: /^Trade register: / }).first().click();
+  await expect(sheet).toBeVisible();
+  const [tradeFile] = await Promise.all([page.waitForEvent('download'), sheet.getByRole('button', { name: 'Download', exact: true }).click()]);
+  const trade = await saved(tradeFile);
+  expect(trade).toContain('Trade summary');
+  expect(trade).toContain('Monthly Attendance Register');
+});
+
+test('register download from a collapsed batch row: one tap, that batch only, the row stays closed', async ({ page, consoleErrors }) => {
+  void consoleErrors;
+  await preset(page, 'batch');
+  await nav(page, 'Reports').click();
+  await page.waitForURL(/\/reports$/);
+  const batches = page.getByRole('region', { name: 'My batches' });
+  const row = batches.getByRole('button', { name: /Electrician · Shift 1 · Unit 2.*students/ });
+  await expect(row).toHaveAttribute('aria-expanded', 'false');
+  const open = batches.getByRole('button', { name: 'Download register for Electrician · Shift 1 · Unit 2' });
+  await expect(open).toHaveAttribute('title', 'Download register for Electrician · Shift 1 · Unit 2');
+  const box = await open.boundingBox();
+  expect(box!.width).toBeGreaterThanOrEqual(44);
+  expect(box!.height).toBeGreaterThanOrEqual(44);
+  await open.click();
+  const sheet = page.getByRole('dialog', { name: 'Download attendance register' });
+  await expect(sheet).toContainText('Electrician · Shift 1 · Unit 2');
+  const [file] = await Promise.all([page.waitForEvent('download'), sheet.getByRole('button', { name: 'Download', exact: true }).click()]);
+  expect(file.suggestedFilename()).toMatch(/^KSK-register_.*_S\d-U\d_\d{4}-\d{2}\.html$/);
+  const html = await saved(file);
+  expect(html).toContain('Electrician · Shift 1 · Unit 2');
+  expect(html).not.toContain('Trade summary');
+  await expect(sheet).toHaveCount(0);
+  await expect(open).toBeFocused();
+  await expect(row).toHaveAttribute('aria-expanded', 'false');
+  await expect(batches.locator('ol > li')).toHaveCount(0);
 });

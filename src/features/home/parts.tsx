@@ -119,16 +119,18 @@ export function SubmittedToday() {
           {data.map((card) => {
             const s = card.submission;
             const counts = s ? summaryLine(t, format, summaryItems(s.counts, ctx.journey.marking.statuses, labels)) : '';
-            const when = s?.pendingSync ? t('selection.waitingToSync') : t('home.submittedAt', { time: format.time(s?.at ?? '') });
+            const when = s?.rejected ? t('sync.rejected') : s?.pendingSync ? t('selection.waitingToSync') : t('home.submittedAt', { time: format.time(s?.at ?? '') });
+            const warn = s?.rejected || s?.pendingSync;
             return (
               <ListRow
                 key={card.key}
                 href={routes.record(card.key)}
-                leading={<Icon name={s?.pendingSync ? 'cloud-upload' : 'circle-check'} size={20} className={s?.pendingSync ? styles.iconWarning : styles.iconSuccess} />}
+                leading={<Icon name={s?.rejected ? 'alert' : s?.pendingSync ? 'cloud-upload' : 'circle-check'} size={20} className={warn ? styles.iconWarning : styles.iconSuccess} />}
                 title={<BatchLabel trade={card.trade} batch={card.batch} />}
                 subtitle={
                   <>
-                    <span className={styles.phrase}>{when}</span>
+                    {/* The refused line is a sentence: it wraps instead of being clipped on a narrow phone. */}
+                    <span className={s?.rejected ? undefined : styles.phrase}>{when}</span>
                     {' · '}
                     <span className={styles.phrase}>{counts}</span>
                   </>

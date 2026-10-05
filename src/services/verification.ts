@@ -4,7 +4,7 @@
  * (PRD §18.4). It checks location and face per configuration and records a
  * pass; the roster and submit both require that pass (INV-16).
  *
- * It also announces what happens as it happens (D-086), so voice mode can speak
+ * It also announces what happens as it happens (D-086), so Voice Agent can speak
  * the outcome the screen shows: subscribe() delivers VerificationEvents. A call
  * that passes no purpose announces nothing, so existing callers are unchanged.
  */
@@ -22,7 +22,7 @@ export type VerificationPurpose = { readonly kind: 'session'; readonly key: Sess
 
 export const purposeKey = (p: VerificationPurpose) => (p.kind === 'self' ? 'self' : `session:${p.key}`);
 
-/** A tap the screen is waiting for, which voice mode asks the person to make. */
+/** A tap the screen is waiting for, which Voice Agent asks the person to make. */
 export type VerificationNeed = 'location_permission' | 'camera_permission' | 'confirm_location' | 'face_enrolment';
 
 /** `purpose` is the purposeKey of the session being verified ("session:<key>"), or "self". */
@@ -73,12 +73,12 @@ export class VerificationService {
       try {
         fn(event);
       } catch {
-        // A listener only observes (voice mode): its failure must never break verification.
+        // A listener only observes (Voice Agent): its failure must never break verification.
       }
     }
   }
 
-  /** The face screen reports its camera: voice mode pauses the microphone while it is on. */
+  /** The face screen reports its camera: Voice Agent pauses the microphone while it is on. */
   cameraActive(purpose: VerificationPurpose, on: boolean): void {
     const key = purposeKey(purpose);
     if (this.cameraOn.has(key) === on) return;

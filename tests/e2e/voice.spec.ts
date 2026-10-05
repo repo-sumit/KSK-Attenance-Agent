@@ -6,11 +6,11 @@ const voice = (page: import('@playwright/test').Page, script: string) => page.ev
 /** Every [APP] text the scripted model has received so far. */
 const appTexts = async (page: import('@playwright/test').Page) => ((await voice(page, 'texts()')) as string[]).filter((t) => t.startsWith('[APP]'));
 
-test.describe('voice mode (scripted model)', () => {
+test.describe('Voice Agent (scripted model)', () => {
   test('voice chooses, verifies, marks by exception and submits; a tap reaches the model', async ({ page, consoleErrors }) => {
     void consoleErrors;
     await preset(page, 'open');
-    await page.getByRole('button', { name: 'Voice mode' }).click();
+    await page.getByRole('button', { name: 'Voice Agent' }).click();
     await expect(page.getByText('Listening')).toBeVisible();
     expect(((await voice(page, 'texts()')) as string[])[0]).toMatch(/^\[APP\] Session started/);
 
@@ -63,10 +63,34 @@ test.describe('voice mode (scripted model)', () => {
     await expect(page.locator('main ol > li').filter({ hasText: 'Absent' })).toHaveCount(2);
   });
 
+  test('Employability Skills at the demo clock: the kickoff names only the batches open now, never a later one (D-134)', async ({ page }) => {
+    // Meera Kulkarni at 10:15: three Shift 1 batches are open; Electrician Shift 2 Unit 3 and Welder Shift 2 Unit 2 open at 2:00 pm
+    await preset(page, 'es');
+    await page.getByRole('button', { name: 'Voice Agent' }).click();
+    await expect.poll(async () => ((await voice(page, 'texts()')) as string[]).length).toBeGreaterThan(0);
+    const kickoff = ((await voice(page, 'texts()')) as string[])[0];
+    expect(kickoff).toMatch(/^\[APP\] Session started\. Greet the trainer by first name .+, then: Read only the batches open now, /);
+    expect(kickoff).toContain(': Shift 1, Unit 1, Electrician; Shift 1, Unit 2, Fitter; Shift 1, Unit 1, COPA. Do not mention any other batch.');
+    expect(kickoff).toContain('Their ids for select_batch: ');
+    expect(kickoff).not.toMatch(/Shift 2|Welder|2:00|opens at|submitted/);
+    await expect(page).toHaveURL(/\/home$/); // several open: nothing is opened before the trainer picks one
+  });
+
+  test('Batch mapped at the demo clock: the only open batch is opened at once, then checked and listed (D-134)', async ({ page }) => {
+    // Sunita Jadhav at 10:15: Electrician Shift 1 Unit 2 is open; Shift 2 Unit 2 opens at 2:00 pm
+    await preset(page, 'batch');
+    await page.getByRole('button', { name: 'Voice Agent' }).click();
+    await page.waitForURL(/\/attendance\/mark\?s=ele-s1u2\./); // the gateway's simulated location and camera pass
+    const texts = (await voice(page, 'texts()')) as string[];
+    expect(texts[0]).toMatch(/^\[APP\] Session started\. Only Shift 1, Unit 2, Electrician can be marked now, so the app opened it: do not call select_batch for it\. Greet the trainer by first name .+, then: Before the student list/);
+    expect(texts[0]).not.toMatch(/Shift 2|2:00/);
+    await expect.poll(async () => (await appTexts(page)).some((t) => /^\[APP\] Trainer opened Shift 1, Unit 2, Electrician on screen\./.test(t))).toBe(true);
+  });
+
   test('a face that does not match is told to the model, and the screen offers the retry', async ({ page }) => {
     await preset(page, 'open');
     await demo(page, `setSimulation({ face: 'no_match' })`);
-    await page.getByRole('button', { name: 'Voice mode' }).click();
+    await page.getByRole('button', { name: 'Voice Agent' }).click();
     await expect(page.getByText('Listening')).toBeVisible();
     await voice(page, `toolCall('select_trade', { trade: 'Electrician' })`);
     await page.waitForURL(/\/attendance\/trade\?trade=ele/);
@@ -78,7 +102,7 @@ test.describe('voice mode (scripted model)', () => {
 
   test('Use screen pauses and Resume continues; Stop voice keeps the marks', async ({ page }) => {
     await preset(page, 'open');
-    await page.getByRole('button', { name: 'Voice mode' }).click();
+    await page.getByRole('button', { name: 'Voice Agent' }).click();
     await expect(page.getByText('Listening')).toBeVisible();
     await voice(page, `toolCall('select_trade', { trade: 'Electrician' })`);
     await page.waitForURL(/\/attendance\/trade\?trade=ele/);
@@ -111,7 +135,7 @@ test.describe('voice mode (scripted model)', () => {
   test('a blocked microphone explains itself and leaves the screen usable', async ({ page }) => {
     await preset(page, 'open');
     await voice(page, `denyMic('permission_denied')`);
-    await page.getByRole('button', { name: 'Voice mode' }).click();
+    await page.getByRole('button', { name: 'Voice Agent' }).click();
     // Shown in the dock, and read once from the provider's alert (C8), which is not part of the dock.
     await expect(page.locator('[data-error="mic_denied"]')).toHaveText('Microphone is blocked. Allow it in settings, or use the screen.');
     await expect(page.locator('[data-voice-announce="error"]')).toHaveText('Microphone is blocked. Allow it in settings, or use the screen.');
@@ -120,14 +144,14 @@ test.describe('voice mode (scripted model)', () => {
 
   test('a configuration change stops voice (Review Focus 2)', async ({ page }) => {
     await preset(page, 'open');
-    await page.getByRole('button', { name: 'Voice mode' }).click();
+    await page.getByRole('button', { name: 'Voice Agent' }).click();
     await expect(page.getByText('Listening')).toBeVisible();
     await page.evaluate(`window.__kskDemo.setConfig({ voice: { enabled: false } })`);
     await expect(page.getByRole('button', { name: 'Stop voice' })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Voice mode' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Voice Agent' })).toHaveCount(0);
   });
 
-  test('the demo panel picks the voice model (presets keep it) and switches Voice mode off', async ({ page }) => {
+  test('the demo panel picks the voice model (presets keep it) and switches Voice Agent off', async ({ page }) => {
     const stored = () => page.evaluate(() => JSON.parse(localStorage.getItem('ksk-demo:v1:state') ?? '{}') as { presetId?: string | null; simulation?: { voice?: string } });
     const voiceModel = async () => (await stored()).simulation?.voice;
     const presetId = async () => (await stored()).presetId;
@@ -156,13 +180,13 @@ test.describe('voice mode (scripted model)', () => {
     await page.getByRole('button', { name: 'Open demo controls' }).click();
     await panel.getByText('Advanced').click();
     await panel.getByLabel('Voice model').selectOption('scripted');
-    await panel.getByRole('radiogroup', { name: 'Voice mode' }).getByRole('radio', { name: 'Off' }).click();
+    await panel.getByRole('radiogroup', { name: 'Voice Agent' }).getByRole('radio', { name: 'Off' }).click();
     await expect(panel.getByLabel('Voice model')).toHaveCount(0);
     await page.getByRole('button', { name: 'Close demo controls' }).click();
-    await expect(page.getByRole('button', { name: 'Voice mode' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Voice Agent' })).toHaveCount(0);
   });
 
-  test.describe('a demo state stored before voice mode', () => {
+  test.describe('a demo state stored before Voice Agent', () => {
     /** What a browser kept from before Task 19: a preset's configuration without `voice`, and no presets version. */
     async function storePreVoiceState(page: import('@playwright/test').Page, presetId: string | null) {
       await page.evaluate((id) => {
@@ -175,12 +199,12 @@ test.describe('voice mode (scripted model)', () => {
       }, presetId);
     }
 
-    test('the stored preset is refreshed on the next load, so Voice mode appears (the persona stays signed in)', async ({ page }) => {
+    test('the stored preset is refreshed on the next load, so Voice Agent appears (the persona stays signed in)', async ({ page }) => {
       await preset(page, 'open');
       await storePreVoiceState(page, 'open');
       await page.reload();
-      await expect(page.getByRole('button', { name: 'Voice mode' })).toBeVisible();
-      await page.getByRole('button', { name: 'Voice mode' }).click();
+      await expect(page.getByRole('button', { name: 'Voice Agent' })).toBeVisible();
+      await page.getByRole('button', { name: 'Voice Agent' }).click();
       await expect(page.getByText('Listening')).toBeVisible();
     });
 
@@ -189,7 +213,7 @@ test.describe('voice mode (scripted model)', () => {
       await storePreVoiceState(page, null);
       await page.reload();
       await expect(page.getByRole('heading', { name: /today/i }).first()).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Voice mode' })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Voice Agent' })).toHaveCount(0);
     });
   });
 
@@ -201,7 +225,7 @@ test.describe('voice mode (scripted model)', () => {
     await page.keyboard.press('Escape');
     // Under three minutes left: the warning takes the caption line (set before voice starts; a config change stops voice).
     await demo(page, `setConfig({ voice: { enabled: true, maxMinutesPerSession: 2 } })`);
-    await page.getByRole('button', { name: 'व्हॉइस मोड' }).click();
+    await page.getByRole('button', { name: 'व्हॉइस एजंट' }).click();
     const dock = page.locator('section[data-voice-status="listening"]');
     await expect(dock).toBeVisible();
     await voice(page, `toolCall('select_trade', { trade: 'Electrician' })`);
@@ -227,7 +251,7 @@ test.describe('voice mode (scripted model)', () => {
     test(`the voice card fits at ${width}px`, async ({ page }) => {
       await page.setViewportSize({ width, height: 800 });
       await preset(page, 'open');
-      await page.getByRole('button', { name: 'Voice mode' }).click();
+      await page.getByRole('button', { name: 'Voice Agent' }).click();
       await expect(page.getByText('Listening')).toBeVisible();
       await expectNoOverflow(page);
     });
@@ -235,7 +259,7 @@ test.describe('voice mode (scripted model)', () => {
 });
 
 test.describe('the floating voice button (D-133)', () => {
-  const fab = (page: import('@playwright/test').Page) => page.getByRole('button', { name: 'Voice mode' });
+  const fab = (page: import('@playwright/test').Page) => page.getByRole('button', { name: 'Voice Agent' });
   const toRoster = async (page: import('@playwright/test').Page) => {
     await page.getByRole('region', { name: 'Today’s attendance' }).getByRole('link', { name: /Electrician/ }).click();
     await page.getByRole('link', { name: /Shift 1 · Unit 2/ }).click();
@@ -261,10 +285,35 @@ test.describe('the floating voice button (D-133)', () => {
     await corner('roster');
   });
 
-  test('is not there for the principal, nor on the login screen', async ({ page }) => {
+  test('the principal has the voice button; the scripted kickoff says today\'s state and asks what they need (D-139)', async ({ page }) => {
     await preset(page, 'principal');
-    await expect(page.locator('main#main')).toBeVisible();
-    await expect(fab(page)).toHaveCount(0);
+    await expect(fab(page)).toBeVisible();
+    await fab(page).click();
+    await expect(page.getByText('Listening')).toBeVisible();
+    const kickoff = ((await voice(page, 'texts()')) as string[])[0];
+    expect(kickoff).toMatch(/^\[APP\] Session started\. Today: \d+ of \d+ batches submitted, \d+ staff not marked yet\. Greet the trainer by first name .+, then say today's state in one line, then ask "What do you need\?"\. Then wait\.$/);
+    expect(kickoff).not.toMatch(/end_voice_session|select_batch/);
+    // "open staff attendance": the screen follows the bus
+    expect(await voice(page, `toolCall('navigate', { to: 'staff_attendance' })`)).toMatchObject({ ok: true });
+    await page.waitForURL(/\/attendance\/staff$/);
+    await expect(page.getByText('Listening')).toBeVisible(); // voice keeps running across the navigation
+  });
+
+  test('voice opens today\'s notices: Home, then the sheet', async ({ page }) => {
+    await preset(page, 'principal');
+    await fab(page).click();
+    await expect(page.getByText('Listening')).toBeVisible();
+    await voice(page, `toolCall('navigate', { to: 'reports' })`);
+    await page.waitForURL(/\/reports$/);
+    const notices = (await voice(page, `toolCall('get_announcements')`)) as { ok: boolean; notices: { title: string }[] };
+    expect(notices.ok).toBe(true);
+    expect(notices.notices[0].title).toBe('Special holiday: institute closed');
+    await voice(page, `toolCall('navigate', { to: 'announcements' })`);
+    await page.waitForURL(/\/home$/);
+    await expect(page.getByRole('dialog', { name: 'Announcements' })).toBeVisible();
+  });
+
+  test('is not there on the login screen', async ({ page }) => {
     await page.goto('/login');
     await expect(page.locator('main#main')).toBeVisible();
     await expect(fab(page)).toHaveCount(0);
@@ -296,6 +345,27 @@ test.describe('the floating voice button (D-133)', () => {
         return c.y >= m.y + m.height - 1 && c.y + c.height <= cta.y + 1 && c.height <= 88;
       })
       .toBe(true);
+    await expectNoOverflow(page);
+  });
+
+  test('at 1280×688 (a short laptop window) on Home: the status never sits under a button, Minimize shows, and the card keeps a gap above the bottom edge (D-136)', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 688 });
+    await preset(page, 'open');
+    await fab(page).click();
+    const card = page.locator('section[data-voice-status="listening"]');
+    await expect(card).toBeVisible();
+    await expect(card.getByRole('button', { name: 'Minimize voice controls' })).toBeVisible();
+    type Box = { x: number; y: number; width: number; height: number };
+    const intersects = (a: Box, b: Box) => a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+    await expect
+      .poll(async () => {
+        const status = (await card.locator('[data-icon] > span').first().boundingBox())!;
+        const useScreen = (await card.getByRole('button', { name: 'Use screen' }).boundingBox())!;
+        const stop = (await card.getByRole('button', { name: 'Stop voice' }).boundingBox())!;
+        const c = (await card.boundingBox())!;
+        return { overlapsUseScreen: intersects(status, useScreen), overlapsStop: intersects(status, stop), gapBelow: 688 - (c.y + c.height) >= 12 };
+      })
+      .toEqual({ overlapsUseScreen: false, overlapsStop: false, gapBelow: true });
     await expectNoOverflow(page);
   });
 

@@ -1,8 +1,9 @@
 /*
- * The voice card (D-133): what the floating voice button grows into while Voice mode is on. VoiceFloat places it
- * at the bottom-right of the screen's content column, in the band ScreenLayout reserves above its footer and bottom
- * navigation, so it never covers a row. Height budget at 320×568: one 44px row plus one 16px line, at most 88px
- * with the padding; the rest opens on demand (the status toggle).
+ * The voice card (D-133, D-136): what the floating voice button grows into while Voice Agent is on. VoiceFloat places
+ * it at the bottom-right of the screen's content column, in the band ScreenLayout reserves above its footer and
+ * bottom navigation, so it never covers a row. From 400px wide or on a tall screen it has two lines (the status, then
+ * the actions); on a narrow short phone one compact row, with a height budget at 320×568 of one 44px row plus one
+ * 16px line, at most 88px with the padding; the rest opens on demand (the status toggle).
  */
 .card {
   display: flex;
@@ -27,14 +28,14 @@
   outline: var(--border-selected) solid var(--color-border-focus);
   outline-offset: var(--space-2);
 }
-/* A two-line error (and a two-line status beside Reconnect) still fits the 88px budget at 320px, Marathi included. */
+/* Compact card: a two-line error (and a two-line status beside Reconnect) still fits the 88px budget at 320px, Marathi included. */
 .withError {
   gap: 0;
   padding-top: var(--space-2);
   padding-bottom: var(--space-4);
 }
 
-/* The status line where there is room: status and mic level, then Minimize at the end. */
+/* Two-line card: the status and mic level (or the status toggle), then Minimize at the end. */
 .head {
   display: flex;
   align-items: center;
@@ -49,9 +50,14 @@
   min-height: var(--touch-target-min);
 }
 
-/* Where there is room the actions have their own line. */
+/* Two-line card: the actions have their own line, and wrap (8px apart) rather than overlap. */
 .rowWide {
   justify-content: flex-start;
+}
+.rowWide > .actions {
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 .state {
   flex: 1 1 auto;
@@ -63,7 +69,7 @@
   align-items: flex-start;
   gap: var(--space-4);
 }
-/* Small screens: the status opens and closes the rest of the dock. */
+/* Where the extras do not always show, the status opens and closes them. */
 .toggle {
   padding: 0;
   border: none;
@@ -100,6 +106,17 @@
 .status > svg {
   flex: none;
 }
+/* A safety net: the status text is cut with an ellipsis rather than run under a control. */
+.status > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The compact row keeps today's wrap: two short words beside Reconnect ("Voice stopped") take two lines within the 88px budget. */
+.rowCompact .status > span {
+  white-space: normal;
+}
 .tone-success { color: var(--color-text-success); }
 .tone-info { color: var(--color-text-info); }
 .tone-warning { color: var(--color-text-warning); }
@@ -132,25 +149,21 @@
 .actions > * {
   white-space: nowrap;
 }
-/* Phones below 400px: Stop voice is the square icon alone (its name stays for screen readers), as the header's demo trigger (D-066). */
 .stop {
   min-width: var(--touch-target-min);
 }
-@media (max-width: 399px) {
-  .stop {
-    padding: 0;
+/* The compact row under 360px: Use screen and Resume voice keep their label without the icon, so the status fits beside them (as Hold to talk there). */
+@media (max-width: 359px) {
+  .rowCompact .rowAction > svg {
+    display: none;
   }
-  .stop > span {
-    display: contents;
-  }
-  .stopLabel {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip-path: inset(50%);
-    white-space: nowrap;
-  }
+}
+/* The compact row: Stop voice is the square icon alone (its name stays for screen readers), as the header's demo trigger (D-066). */
+.stopIcon {
+  padding: 0;
+}
+.stopIcon > span {
+  display: contents;
 }
 
 .caption {

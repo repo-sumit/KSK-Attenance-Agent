@@ -1,14 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
 import { completenessIssues } from '@/domain/marking';
-import { compileFlowPlan } from '@/domain/voice/plan';
+import { compileVoicePlan } from '@/domain/voice/plan';
 import { ActionBus, type UiEvent } from '@/services/voice/action-bus';
 import { createExecutor, type ToolResult, type VoiceExecutor } from '@/services/voice/executor';
 import type { ConfigLayer } from '@/config/types';
 import { addDays, instantAt } from '@/lib/time';
+import { routes } from '@/lib/routes';
 import type { SessionContext } from '@/services/context';
 import type { DraftChange } from '@/services/marking-draft';
+import { RECONNECT_EVENT, RESUME_EVENT } from '@/services/voice/app-events';
 import { TrainerTurns } from '@/services/voice/trainer-turns';
-import { setup, signIn, TODAY } from '../helpers/app';
+import { setup, signIn, TODAY, verify } from '../helpers/app';
 
 const SUBMIT_QUESTION = /ask whether to submit/i;
 /** mark_remaining's check question in the review: one question, never also a yes to submitting (kept without a code). */
@@ -20,7 +22,8 @@ async function voiceSession(
 ) {
   const env = setup({ voice: { enabled: true }, ...layer });
   const ctx = adjust(await signIn(env.app, trainerId));
-  const plan = compileFlowPlan(ctx, 'en')!;
+  const voicePlan = compileVoicePlan(ctx, 'en')!;
+  const plan = voicePlan.marking!;
   const bus = new ActionBus();
   const nav: string[] = [];
   const events: UiEvent[] = [];
@@ -29,8 +32,9 @@ async function voiceSession(
   const turns = new TrainerTurns(); // the session's counters, fed the events a real conversation would bring
   let generation = 1;
   const raw = createExecutor({
-    ctx, plan, bus,
+    ctx, plan: voicePlan, bus,
     attendance: env.app.services.attendance, verification: env.app.services.verification, drafts: env.app.services.drafts,
+    announcements: env.app.services.announcements, staffAttendance: env.app.services.staffAttendance, reports: env.app.services.reports,
     isOnline: () => true, nowMs: () => env.clock.now().getTime(), speechSeq: () => turns.counts.speechSeq, turnSeq: () => turns.counts.turnSeq, spokeAtTurn: () => turns.counts.spokeAtTurn, generation: () => generation, entropy: opts.entropy ?? (() => 0.42),
   });
   /**
@@ -530,7 +534,7 @@ describe('voice executor: screens and verification events', () => {
     expect(await s.ex.onVerification({ type: 'face', purpose, result: 'no_match' })).toMatch(/Face check failed: the face did not match/);
     expect(await s.ex.onVerification({ type: 'camera', purpose, on: false })).toBeNull();
     expect(await s.call('verify_again')).toMatchObject({ ok: true, step: 'VERIFY' });
-    expect(s.events.at(-1)).toMatchObject({ type: 'verify_retry', sessionKey: s.ex.flow().sessionKey });
+    expect(s.events.at(-1)).toMatchObject({ type: 'verify_retry', purpose: `session:${s.ex.flow().sessionKey}` });
     expect(s.ex.flow().step).toBe('VERIFY');
   });
 
@@ -547,7 +551,7 @@ describe('voice executor: screens and verification events', () => {
 
   it('kickoff and refresh texts come from the flow', async () => {
     const s = await voiceSession();
-    expect(await s.ex.kickoff('start', 'English')).toBe('[APP] Session started. Greet the trainer in one short line in English and call get_trades.');
+    expect(await s.ex.kickoff('start', 'English')).toMatch(/^\[APP\] Session started\. Greet the trainer by first name in one short line in English \("Good morning, <first name>\."\), then ask which trade/);
     expect(await s.ex.kickoff('reconnect', 'English')).toBe('[APP] Reconnected. Call get_status and continue from the current student.');
     expect(await s.ex.refresh(null)).toMatch(/^\[APP\] The connection was refreshed; trust these facts over your memory\. We are choosing the trade\./);
   });
@@ -587,7 +591,7 @@ describe('voice executor: a result that leaves everyone marked asks the submit q
     forwardDraftChanges(s); // voice's own last mark must not void the code its result carries
     const { last } = await rollCallToReview(s);
     expect(last).toMatchObject({ ok: true, step: 'REVIEW', all_marked: true, counts: { PRESENT: 30, ABSENT: 1 }, confirm_token: expect.stringMatching(/^[A-HJ-NP-Z2-9]{4}$/) });
-    expect(last.instruction).toContain('Then say everyone is marked. Read the counts: 30 present, 1 absent (absent: Rahul Kumar). Say submit is final and cannot be changed later.');
+    expect(last.instruction).toContain('Then say everyone is marked. In one line, read the counts: 30 present, 1 absent (absent: Rahul Kumar), then ask whether to submit, saying it is final');
     expect(last.instruction).toContain(`Call submit_attendance with confirm_token "${last.confirm_token}" only after a clear yes.`);
     expect(s.events.filter((e) => e.type === 'navigate').at(-1)).toMatchObject({ href: expect.stringMatching(/^\/attendance\/review\?s=/), replace: false });
     const submit = vi.spyOn(s.env.app.services.attendance, 'submit');
@@ -622,7 +626,7 @@ describe('voice executor: a result that leaves everyone marked asks the submit q
     const done = await s.call('mark_remaining', { status: 'PRESENT', confirm_token: ask.confirm_token });
     expect(done).toMatchObject({ ok: true, count_marked: 30, step: 'REVIEW', confirm_token: expect.any(String) });
     expect(done.confirm_token).not.toBe(ask.confirm_token);
-    expect(done.instruction).toMatch(/^Say everyone is marked\. Read the counts: 30 present, 1 absent \(absent: Aarav Pawar\)\. /);
+    expect(done.instruction).toMatch(/^Say everyone is marked\. In one line, read the counts: 30 present, 1 absent \(absent: Aarav Pawar\), then /);
     expect(done.instruction).toContain(`Call submit_attendance with confirm_token "${done.confirm_token}" only after a clear yes.`);
     expect(s.nav.at(-1)).toMatch(/^\/attendance\/review\?s=/);
     s.speak();
@@ -635,7 +639,7 @@ describe('voice executor: a result that leaves everyone marked asks the submit q
     const fix = await s.call('set_student_status', { student: 'Aditi', status: 'absent', heard: 'Aditi absent thi' });
     expect(fix).toMatchObject({ ok: true, step: 'REVIEW', counts: { PRESENT: 29, ABSENT: 2 }, confirm_token: expect.any(String) });
     expect(fix.confirm_token).not.toBe(last.confirm_token);
-    expect(fix.instruction).toContain('Then say everyone is marked. Read the counts: 29 present, 2 absent (absent: Aditi Joshi, Rahul Kumar).');
+    expect(fix.instruction).toContain('Then say everyone is marked. In one line, read the counts: 29 present, 2 absent (absent: Aditi Joshi, Rahul Kumar), then');
     expect(fix.instruction).toContain(`confirm_token "${fix.confirm_token}"`);
     s.speak();
     expect(await s.call('submit_attendance', { confirm_token: last.confirm_token })).toMatchObject({ ok: false, error: 'NEEDS_CONFIRMATION' });
@@ -652,7 +656,7 @@ describe('voice executor: a result that leaves everyone marked asks the submit q
     await rollCallToReview(s);
     const status = await s.call('get_status');
     expect(status).toMatchObject({ ok: true, step: 'REVIEW', counts: { PRESENT: 30, ABSENT: 1 }, confirm_token: expect.any(String) });
-    expect(status.instruction).toMatch(/^Everyone is marked\. Read the counts: 30 present, 1 absent \(absent: Rahul Kumar\)\. /);
+    expect(status.instruction).toMatch(/^Everyone is marked\. In one line, read the counts: 30 present, 1 absent \(absent: Rahul Kumar\), then /);
     s.speak();
     expect(await s.call('submit_attendance', { confirm_token: status.confirm_token })).toMatchObject({ ok: true, step: 'SUBMITTED' });
 
@@ -676,7 +680,7 @@ describe('voice executor: a result that leaves everyone marked asks the submit q
     expect(r).toMatchObject({ ok: true, step: 'REVIEW', counts: { PRESENT: 31 }, confirm_token: expect.any(String) });
     const again = await s.call('start_roll_call');
     expect(again).toMatchObject({ ok: true, step: 'REVIEW', confirm_token: expect.any(String) });
-    expect(again.instruction).toMatch(/^Every student is already marked\. Say so\. Read the counts: 31 present \(everyone present\)\. /);
+    expect(again.instruction).toMatch(/^Every student is already marked\. Say so\. In one line, read the counts: 31 present \(everyone present\), then /);
     s.speak();
     expect(await s.call('submit_attendance', { confirm_token: again.confirm_token })).toMatchObject({ ok: true, step: 'SUBMITTED' });
   });
@@ -757,7 +761,7 @@ describe('voice executor: submit races share one save', () => {
     await settle();
     const screen = await screenSubmit(s, key);
     expect(screen.ok).toBe(true);
-    expect(told.at(-1)).toMatch(/^\[APP\] Trainer pressed Submit on screen\. Say attendance for Shift 1, Unit 2, Electrician is submitted and locked/);
+    expect(told.at(-1)).toMatch(/^\[APP\] Trainer pressed Submit on screen\. Attendance for Shift 1, Unit 2, Electrician is submitted and locked/);
     w.release();
     const answer = await voice;
     expect(answer).toMatchObject({ ok: false, error: 'ALREADY_SUBMITTED' });
@@ -860,7 +864,7 @@ describe('voice executor: one clear yes everywhere (Task 23 Part A)', () => {
     await s.call('set_student_status', { student: 'Aditi', status: 'absent' });
     const rest = await s.call('mark_remaining', { status: 'PRESENT' });
     expect(rest).toMatchObject({ ok: true, count_marked: 0, step: 'REVIEW', counts: { PRESENT: 30, ABSENT: 1 }, confirm_token: expect.any(String) });
-    expect(rest.instruction).toMatch(/^Everyone not named is already present: 30 present, 1 absent\. Say that in one line\. Read the counts: 30 present, 1 absent \(absent: Aditi Joshi\)\. /);
+    expect(rest.instruction).toMatch(/^Everyone not named is already present: 30 present, 1 absent\. Say that in one line\. In one line, read the counts: 30 present, 1 absent \(absent: Aditi Joshi\), then /);
     expect(s.nav.at(-1)).toMatch(/^\/attendance\/review\?s=/);
     await oneYesSubmits(s, rest.confirm_token as string);
   });
@@ -884,7 +888,7 @@ describe('voice executor: one clear yes everywhere (Task 23 Part A)', () => {
     drafts.setMany(key, drafts.get(key)!.students.map((st) => st.id), { status: 'absent' }, { via: 'tap' }); // tapped before voice heard of it
     const started = await s.call('start_roll_call');
     expect(started).toMatchObject({ ok: true, step: 'REVIEW', counts: { ABSENT: 31 }, confirm_token: expect.any(String) });
-    expect(started.instruction).toMatch(/^Every student is already marked\. Say so\. Read the counts: 31 absent\. /);
+    expect(started.instruction).toMatch(/^Every student is already marked\. Say so\. In one line, read the counts: 31 absent, then /);
     await oneYesSubmits(s, started.confirm_token as string);
   });
 
@@ -896,7 +900,7 @@ describe('voice executor: one clear yes everywhere (Task 23 Part A)', () => {
     expect(s.ex.flow()).toMatchObject({ step: 'ROLL_CALL', currentId: null });
     const fix = await s.call('set_student_status', { student: 'Aditi', status: 'absent' });
     expect(fix).toMatchObject({ ok: true, step: 'REVIEW', counts: { PRESENT: 29, ABSENT: 2 }, confirm_token: expect.any(String) });
-    expect(fix.instruction).toContain('Then say everyone is marked. Read the counts: 29 present, 2 absent (absent: Aditi Joshi, Rahul Kumar).');
+    expect(fix.instruction).toContain('Then say everyone is marked. In one line, read the counts: 29 present, 2 absent (absent: Aditi Joshi, Rahul Kumar), then');
     await oneYesSubmits(s, fix.confirm_token as string);
   });
 
@@ -905,7 +909,7 @@ describe('voice executor: one clear yes everywhere (Task 23 Part A)', () => {
     await rollCallToReview(s);
     const again = await s.call('select_batch', { batch: 'shift 1 unit 2' });
     expect(again).toMatchObject({ ok: true, step: 'REVIEW', confirm_token: expect.any(String) });
-    expect(again.instruction).toMatch(/^This batch is already open\. Everyone is marked\. Read the counts: 30 present, 1 absent/);
+    expect(again.instruction).toMatch(/^This batch is already open\. Everyone is marked\. In one line, read the counts: 30 present, 1 absent/);
     await oneYesSubmits(s, again.confirm_token as string);
 
     const t = await voiceSession('TR-10432', NO_CHECK);
@@ -913,7 +917,7 @@ describe('voice executor: one clear yes everywhere (Task 23 Part A)', () => {
     await t.call('submit_attendance'); // the review
     const none = await t.call('mark_remaining', { status: 'PRESENT' });
     expect(none).toMatchObject({ ok: false, error: 'WRONG_STEP', step: 'REVIEW', confirm_token: expect.any(String) });
-    expect(none.instruction).toMatch(/^Everyone is already marked \(31 present\), so nobody was changed\. Read the counts: 31 present/);
+    expect(none.instruction).toMatch(/^Everyone is already marked \(31 present\), so nobody was changed\. In one line, read the counts: 31 present/);
     await oneYesSubmits(t, none.confirm_token as string);
   });
 
@@ -925,7 +929,7 @@ describe('voice executor: one clear yes everywhere (Task 23 Part A)', () => {
     await s.call('go_back', { to: 'batch' });
     const opened = await s.call('select_batch', { batch: 'shift 1 unit 2' });
     expect(opened).toMatchObject({ ok: true, step: 'REVIEW', counts: { PRESENT: 31 }, confirm_token: expect.any(String) });
-    expect(opened.instruction).toContain('Every student already has a status: 31 present. Say that in one line. Read the counts: 31 present');
+    expect(opened.instruction).toContain('Every student already has a status: 31 present. Say that in one line. In one line, read the counts: 31 present');
     // only the review is pushed (a list pushed first could send its signal and take the review back to the list)
     expect(s.nav.slice(-2).map((href) => href.split('?')[0])).toEqual(['/attendance/trade', '/attendance/review']);
     await oneYesSubmits(s, opened.confirm_token as string);
@@ -945,7 +949,7 @@ describe('voice executor: refresh and reconnect at the review (Task 23 Part B1)'
     s.newConnection();
     const text = await s.ex.refresh(last.instruction, 'bas');
     expect(text).toMatch(/^\[APP\] The connection was refreshed; trust these facts over your memory\. Last marked/);
-    expect(text).toContain('The trainer last said: "bas" (already handled: do not act on it again). Your last question to the trainer was lost in the refresh: ask it again now, then wait. Its instruction was: Read the counts: 30 present, 1 absent');
+    expect(text).toContain('The trainer last said: "bas" (already handled: do not act on it again). Your last question to the trainer was lost in the refresh: ask it again now, then wait. Its instruction was: In one line, read the counts: 30 present, 1 absent');
     expect(codeIn(text)).not.toBe(last.confirm_token);
     await oneYesSubmits(s, codeIn(text));
 
@@ -960,7 +964,7 @@ describe('voice executor: refresh and reconnect at the review (Task 23 Part B1)'
     await rollCallToReview(s);
     s.newConnection();
     const text = await s.ex.kickoff('reconnect', 'English');
-    expect(text).toMatch(/^\[APP\] Reconnected\. The trainer is at the review\. Ask this now, then wait: Read the counts: 30 present, 1 absent/);
+    expect(text).toMatch(/^\[APP\] Reconnected\. The trainer is at the review\. Ask this now, then wait: In one line, read the counts: 30 present, 1 absent/);
     await oneYesSubmits(s, codeIn(text));
   });
 
@@ -1171,7 +1175,7 @@ describe('voice executor: final fixes (executor, handlers, the shared submit hol
     await s.ex.onScreen({ kind: 'home' });
     const text = await s.ex.onScreen({ kind: 'mark', sessionKey: key }); // the invariant checks this text
     expect(text).toMatch(/^\[APP\] Trainer opened Shift 1, Unit 2, Electrician on screen\./);
-    expect(text).toContain('Every student already has a status: 31 absent. Say that in one line. Read the counts: 31 absent');
+    expect(text).toContain('Every student already has a status: 31 absent. Say that in one line. In one line, read the counts: 31 absent');
     expect(s.ex.flow()).toMatchObject({ step: 'REVIEW', sessionKey: key });
     expect(s.nav.at(-1)).toMatch(/^\/attendance\/review\?s=/);
     await oneYesSubmits(s, codeIn(text));
@@ -1356,7 +1360,7 @@ describe('voice executor: final fixes (executor, handlers, the shared submit hol
     s.newConnection();
     const text = await s.ex.refresh(null);
     expect(text).not.toMatch(/lost/);
-    expect(text).toContain('The trainer is at the review. Ask this now, then wait: Read the counts: 30 present, 1 absent');
+    expect(text).toContain('The trainer is at the review. Ask this now, then wait: In one line, read the counts: 30 present, 1 absent');
     await oneYesSubmits(s, codeIn(text));
   });
 
@@ -1478,5 +1482,336 @@ describe('voice executor: final follow-ups (task-final-executor-2)', () => {
     await s.ex.onScreen({ kind: 'trade', tradeId: 'fit' });
     expect(await s.ex.onScreen({ kind: 'home' })).toBeNull(); // still voice's own navigation: nothing said, the flow stays
     expect(s.ex.flow()).toMatchObject({ step: 'SELECT_BATCH', tradeId: 'fit' });
+  });
+});
+
+describe('voice executor: only what can be marked now (D-134)', () => {
+  const MEERA_PERIODS: ConfigLayer = { mapping: { model: 'timetable' }, marking: { frequency: 'period' } };
+  const keyOf = (batchId: string, slot = 'daily') => `${batchId}.${TODAY}.${slot}`;
+  /** Shift 1's window closed at 10:00, so at 10:15 nothing is open until Shift 2 at 2:00 pm. */
+  const SHIFT_1_SHUT: ConfigLayer = { ...NO_CHECK, time: { shiftWindows: { 1: { start: '07:00', end: '10:00' }, 2: { start: '14:00', end: '20:00' } } } };
+
+  it('kickoff with the only open batch opens it itself: VERIFY, a navigate event, and the open text after the greeting', async () => {
+    const s = await voiceSession('TR-10518', { mapping: { model: 'batch' } });
+    const text = await s.ex.kickoff('start', 'English');
+    expect(text).toMatch(/^\[APP\] Session started\. Only Shift 1, Unit 2, Electrician can be marked now, so the app opened it: do not call select_batch for it\. Greet the trainer by first name in one short line in English \("Good morning, <first name>\."\), then: Before the student list/);
+    expect(text).not.toMatch(/Shift 2/);
+    expect(s.ex.flow()).toMatchObject({ step: 'VERIFY', sessionKey: keyOf('ele-s1u2') });
+    expect(s.events).toContainEqual(expect.objectContaining({ type: 'navigate', href: expect.stringMatching(/^\/attendance\/open\?s=ele-s1u2\./) }));
+  });
+
+  it('kickoff with the only open batch and a pass already given opens the list (ROLL_CALL)', async () => {
+    const s = await voiceSession('TR-10518', { mapping: { model: 'batch' } });
+    await verify(s.env.app, s.ctx, keyOf('ele-s1u2'));
+    const text = await s.ex.kickoff('start', 'English');
+    expect(text).toMatch(/^\[APP\] Session started\. Only Shift 1, Unit 2, Electrician can be marked now, so the app opened it: do not call select_batch for it\. .*, then: In the trainer's language, with numbers said the way that language says them, in one short line, say Shift 1, Unit 2, Electrician, 31 students, everyone present, and ask who is absent/);
+    expect(s.ex.flow()).toMatchObject({ step: 'ROLL_CALL', rollCall: false, sessionKey: keyOf('ele-s1u2') });
+    expect(s.nav.at(-1)).toMatch(/^\/attendance\/mark\?s=ele-s1u2\./);
+  });
+
+  it('voice started on My attendance, Reports or the staff screen opens nothing: it offers own attendance or reads the open batch', async () => {
+    // Rajesh Patil: only Shift 1 Unit 1 is open at 10:15, and his own attendance is not marked yet
+    const self = await voiceSession('TR-10432', { mapping: { model: 'batch' } });
+    await self.ex.onScreen({ kind: 'self' });
+    const offer = await self.ex.kickoff('start', 'English');
+    expect(offer).toMatch(/^\[APP\] Session started\. The trainer is on My attendance, and their own attendance is not marked today\. Greet the trainer .*call mark_my_attendance\.$/);
+    expect(self.ex.flow().step).not.toBe('VERIFY');
+    expect(self.nav).toEqual([]); // the screen the trainer chose stays
+    // Sunita Jadhav marked her own attendance already: the open batch is read, still not opened
+    const marked = await voiceSession('TR-10518', { mapping: { model: 'batch' } });
+    expect(await marked.env.app.services.staffAttendance.myRecord(marked.ctx)).toBeDefined();
+    await marked.ex.onScreen({ kind: 'self' });
+    const read = await marked.ex.kickoff('start', 'English');
+    expect(read).toMatch(/^\[APP\] Session started\. Greet the trainer .*Only Shift 1, Unit 2, Electrician can be marked now\. Say that in one short line and ask whether to open it; on yes, call select_batch with id ele-s1u2\./);
+    expect(marked.nav).toEqual([]);
+    for (const screen of ['reports', 'staff_attendance', undefined] as const) {
+      const away = await voiceSession('TR-10518', { mapping: { model: 'batch' } });
+      await away.ex.onScreen(screen ? { kind: 'other', screen } : { kind: 'other' });
+      expect(await away.ex.kickoff('start', 'English')).toMatch(/Only Shift 1, Unit 2, Electrician can be marked now\. Say that in one short line and ask whether to open it/);
+      expect(away.ex.flow().step, `nothing opened on ${screen ?? 'another screen'}`).toBe('SELECT_BATCH');
+      expect(away.nav).toEqual([]);
+    }
+    // back on Home before the start: the only open batch is opened as usual
+    const home = await voiceSession('TR-10518', { mapping: { model: 'batch' } });
+    await home.ex.onScreen({ kind: 'other', screen: 'reports' });
+    await home.ex.onScreen({ kind: 'home' });
+    expect(await home.ex.kickoff('start', 'English')).toMatch(/so the app opened it/);
+  });
+
+  it('Resume, Reconnect and a refresh away from the batch screens say where the trainer is and wait; on a batch they keep the marking texts', async () => {
+    const s = await voiceSession('TR-10518', { mapping: { model: 'batch' } });
+    await s.ex.onScreen({ kind: 'other', screen: 'reports' });
+    await s.ex.kickoff('start', 'English');
+    expect(s.ex.resumeText()).toBe('[APP] The trainer is back from the screen. They are on the Reports screen; no batch is being marked. Say in a few words that you are listening, then wait for their request.');
+    expect(await s.ex.kickoff('reconnect', 'English')).toBe('[APP] Reconnected. The trainer is on the Reports screen; no batch is being marked. Say in a few words that you are listening, then wait for their request.');
+    expect(await s.ex.refresh(null)).toBe("[APP] The connection was refreshed; trust these facts over your memory. The trainer is on the Reports screen; no batch is being marked. Wait for the trainer's request.");
+    // a question still waiting is asked again, wherever the trainer is
+    expect(await s.ex.refresh('Ask which batch: Shift 1, Unit 2; Shift 2, Unit 2.', 'report')).toContain('Your last question to the trainer was lost in the refresh: ask it again now, then wait.');
+    await s.ex.onScreen({ kind: 'self' });
+    expect(s.ex.resumeText()).toMatch(/They are on the My attendance screen;/);
+    // Home again: the marking texts
+    await s.ex.onScreen({ kind: 'home' });
+    expect(s.ex.resumeText()).toBe(RESUME_EVENT);
+    expect(await s.ex.kickoff('reconnect', 'English')).toBe(RECONNECT_EVENT);
+    expect(await s.ex.refresh(null)).toMatch(/We are choosing the batch\./);
+  });
+
+  it('a batch waiting for its check on the face enrolment screen is not "away": Resume, Reconnect and a refresh keep the check texts (Task 19)', async () => {
+    // Sunita Jadhav: the kickoff opens the only open batch, which waits for the check; OpenSessionScreen sends a trainer
+    // whose face enrolment is owed to /face?next=..., a screen voice cannot name ({ kind: 'other' })
+    const s = await voiceSession('TR-10518', { mapping: { model: 'batch' } });
+    await s.ex.kickoff('start', 'English');
+    expect(s.ex.flow()).toMatchObject({ step: 'VERIFY', sessionKey: keyOf('ele-s1u2') });
+    await s.ex.onScreen({ kind: 'other' });
+    expect(s.ex.resumeText()).toBe(RESUME_EVENT);
+    expect(await s.ex.kickoff('reconnect', 'English')).toBe(RECONNECT_EVENT);
+    const refresh = await s.ex.refresh(null);
+    expect(refresh).not.toMatch(/no batch is being marked|another screen/);
+    expect(refresh).toMatch(/check/i);
+    // back to the list by voice: its navigation's screen signal ends the detour, and the marking texts return
+    await s.call('go_back', { to: 'batch' });
+    expect(s.ex.flow().step).toBe('SELECT_BATCH');
+    expect(s.nav.at(-1)).toBe(routes.home);
+    expect(await s.ex.onScreen({ kind: 'home' })).toBeNull();
+    expect(s.ex.resumeText()).toBe(RESUME_EVENT);
+  });
+
+  it('a real tap to Reports while a batch waits for its check is kept: hidden during the check, said once the check is left (fix round 1)', async () => {
+    const s = await voiceSession('TR-10518', { mapping: { model: 'batch' } });
+    await s.ex.kickoff('start', 'English');
+    expect(s.ex.flow()).toMatchObject({ step: 'VERIFY', sessionKey: keyOf('ele-s1u2') });
+    await s.ex.onScreen({ kind: 'other', screen: 'reports' }); // the trainer tapped Reports during the check
+    expect(s.ex.resumeText()).toBe(RESUME_EVENT); // the batch still owns the texts while it waits for its check
+    expect(await s.ex.refresh(null)).toMatch(/check/i);
+    // the check is left by voice before the screen follows: the texts say where the trainer really is
+    await s.call('go_back', { to: 'batch' });
+    expect(s.ex.flow().step).toBe('SELECT_BATCH');
+    expect(s.ex.resumeText()).toMatch(/Reports screen/);
+  });
+
+  it('a batch open by voice while the trainer glances at Reports keeps the roll call texts', async () => {
+    const s = await voiceSession('TR-10518', { mapping: { model: 'batch' }, ...NO_CHECK });
+    await s.ex.kickoff('start', 'English');
+    expect(s.ex.flow().step).toBe('ROLL_CALL');
+    await s.ex.onScreen({ kind: 'other', screen: 'reports' });
+    expect(s.ex.resumeText()).toBe(RESUME_EVENT);
+    expect(await s.ex.kickoff('reconnect', 'English')).toBe(RECONNECT_EVENT);
+  });
+
+  it('kickoff with two open periods and later ones names only the open two, with their ids', async () => {
+    const s = await voiceSession('TR-11024', MEERA_PERIODS);
+    const text = await s.ex.kickoff('start', 'English');
+    expect(text).toMatch(/^\[APP\] Session started\. Greet the trainer by first name in one short line in English \("Good morning, <first name>\."\), then: Read only the periods open now/);
+    expect(text).toContain('Shift 1, Unit 1, Electrician, Period 3 (theory); Shift 1, Unit 1, COPA, Period 3 (theory).');
+    expect(text).toContain(`Their ids for select_batch: Shift 1, Unit 1, Electrician, Period 3 (theory): ${keyOf('ele-s1u1', 'p3.es')}; Shift 1, Unit 1, COPA, Period 3 (theory): ${keyOf('copa-s1u1', 'p3.es')}.`);
+    expect(text).not.toMatch(/Shift 2|Fitter|Welder|2:00|5:00|closed/);
+    expect(s.ex.flow().step).toBe('SELECT_BATCH'); // nothing opened
+    expect(s.nav).toEqual([]);
+  });
+
+  it('kickoff with nothing open says when the next one opens and asks what the trainer needs, never ends (D-142)', async () => {
+    const s = await voiceSession('TR-11024', MEERA_PERIODS);
+    s.env.clock.set(instantAt(TODAY, '11:30'));
+    expect(await s.ex.kickoff('start', 'English')).toBe(
+      '[APP] Session started. Nothing can be marked right now: the next period opens at 2:00 pm. Greet the trainer by first name in one short line in English ("Good morning, <first name>."), say that in one line, then ask "What do you need?". Then wait.',
+    );
+    s.env.clock.set(instantAt(TODAY, '18:30'));
+    expect(await s.ex.kickoff('start', 'English')).toMatch(/^\[APP\] Session started\. Nothing can be marked right now: today's attendance windows are closed\. Greet the trainer by first name in one short line in English \("Good evening, <first name>\."\)/);
+    expect(s.ex.flow().step).toBe('SELECT_BATCH');
+  });
+
+  it('kickoff with a trade step reads only the trades with a batch open now; voice started on a batch list or screen is unchanged', async () => {
+    const s = await voiceSession();
+    // Welder and COPA have only a submitted batch and later ones at 10:15: not read
+    expect(await s.ex.kickoff('start', 'English')).toBe(
+      '[APP] Session started. Greet the trainer by first name in one short line in English ("Good morning, <first name>."), then ask which trade, reading the trade names: Electrician, Fitter, Mechanic Diesel. No tool call is needed before the trainer answers. When the trainer names one, call select_trade.',
+    );
+    await s.call('select_trade', { trade: 'Electrician' });
+    expect(await s.ex.kickoff('start', 'English')).toBe('[APP] Session started again. Call get_status and continue from where we were.');
+    const t = await voiceSession('TR-10518', { mapping: { model: 'batch' } });
+    await t.call('select_batch', { batch: 'shift 1 unit 2' });
+    expect(await t.ex.kickoff('start', 'English')).toBe('[APP] Session started again. Call get_status and continue from where we were.');
+    expect(t.nav).toHaveLength(1); // no second open
+  });
+
+  it('kickoff with a trade step and nothing open in any trade: why, then what the trainer needs (D-142)', async () => {
+    const s = await voiceSession();
+    s.env.clock.set(instantAt(TODAY, '20:30')); // after both shifts' windows
+    expect(await s.ex.kickoff('start', 'English')).toBe(
+      '[APP] Session started. Nothing can be marked right now: today\'s attendance windows are closed. Greet the trainer by first name in one short line in English ("Good evening, <first name>."), say that in one line, then ask "What do you need?". Then wait.',
+    );
+    expect(s.ex.flow().step).toBe('SELECT_TRADE');
+    const t = await voiceSession('TR-10432', SHIFT_1_SHUT);
+    expect(await t.ex.kickoff('start', 'English')).toMatch(/^\[APP\] Session started\. Nothing can be marked right now: the next batch opens at 2:00 pm\. Greet the trainer/);
+  });
+
+  it('get_status and select_trade at the batch list give the open batches only', async () => {
+    const s = await voiceSession();
+    const trade = await s.call('select_trade', { trade: 'Electrician' });
+    const open = [{ id: keyOf('ele-s1u2'), label: 'Shift 1, Unit 2, Electrician' }, { id: keyOf('ele-s1u3'), label: 'Shift 1, Unit 3, Electrician' }];
+    expect(trade.batches).toEqual(open);
+    expect(trade.instruction).not.toMatch(/Shift 2|2:00|submitted/);
+    const status = await s.call('get_status');
+    expect(status).toMatchObject({ step: 'SELECT_BATCH', batches: open });
+    expect(status.instruction).toContain('Shift 1, Unit 2; Shift 1, Unit 3.');
+  });
+
+  it('select_batch looks among the open batches first; a later batch named on its own still says why it cannot open', async () => {
+    const s = await voiceSession();
+    await s.call('select_trade', { trade: 'Electrician' });
+    // "unit 2" is Shift 1 Unit 2 (open) and Shift 2 Unit 2 (opens at 2:00 pm): the open one
+    expect(await s.call('select_batch', { batch: 'unit 2' })).toMatchObject({ ok: true, step: 'VERIFY', batch: { id: keyOf('ele-s1u2') } });
+    const t = await voiceSession();
+    await t.call('select_trade', { trade: 'Electrician' });
+    expect(await t.call('select_batch', { batch: 'shift 2 unit 2' })).toMatchObject({ ok: false, error: 'WINDOW_NOT_OPEN', opens: '2:00 pm' });
+    const missing = await t.call('select_batch', { batch: 'shift 1 unit 9' });
+    expect(missing).toMatchObject({ ok: false, error: 'NOT_FOUND', batches: [{ id: keyOf('ele-s1u2') }, { id: keyOf('ele-s1u3') }] });
+    expect(missing.instruction).toBe('Electrician has these batches open now: Shift 1, Unit 2, Electrician; Shift 1, Unit 3, Electrician. Read them and ask which one.');
+  });
+
+  it('after a voice submit: the next open batch is offered by its id, or, with none, it says so and waits (D-142)', async () => {
+    const s = await voiceSession('TR-10432', NO_CHECK);
+    await openEleS1U2(s);
+    const ask = await s.call('submit_attendance');
+    s.speak();
+    const done = await s.call('submit_attendance', { confirm_token: ask.confirm_token });
+    expect(done).toMatchObject({ ok: true, step: 'SUBMITTED' });
+    expect(done.instruction).toContain(`then ask whether to open Shift 1, Unit 3, Electrician next, in one short question. On yes, call select_batch with id ${keyOf('ele-s1u3')}.`);
+    expect(await s.call('select_batch', { batch: keyOf('ele-s1u3') })).toMatchObject({ ok: true, step: 'ROLL_CALL', batch: { id: keyOf('ele-s1u3') } });
+
+    const t = await voiceSession('TR-10518', { ...NO_CHECK, mapping: { model: 'batch' } });
+    await t.call('select_batch', { batch: 'shift 1 unit 2' });
+    const q = await t.call('submit_attendance');
+    t.speak();
+    const last = await t.call('submit_attendance', { confirm_token: q.confirm_token });
+    expect(last.instruction).toContain('Say in one short line that it is submitted and nothing else can be marked right now (the next batch opens at 2:00 pm), then stop and wait for the trainer.');
+    expect(last.instruction).not.toMatch(/end_voice_session|goodbye/);
+  });
+
+  it('words that match only later batches say when they open, never "which one"', async () => {
+    const s = await voiceSession();
+    await s.call('select_trade', { trade: 'Electrician' });
+    // "shift 2" is Shift 2 Units 1, 2 and 3, all opening at 2:00 pm; Units 2 and 3 of Shift 1 are open
+    const later = await s.call('select_batch', { batch: 'shift 2' });
+    expect(later).toMatchObject({ ok: false, error: 'WINDOW_NOT_OPEN', opens: '2:00 pm' });
+    expect(later.instruction).toBe(
+      'The attendance windows for Shift 2, Unit 1, Electrician and Shift 2, Unit 2, Electrician and Shift 2, Unit 3, Electrician open at 2:00 pm. Say so in one line and ask for another batch.',
+    );
+    expect(s.ex.flow()).toMatchObject({ step: 'SELECT_BATCH', tradeId: 'ele' });
+    // with nothing open in the trade, no other batch is asked for; a submitted and closed mix says why nothing can be marked
+    const t = await voiceSession('TR-10432', SHIFT_1_SHUT);
+    await t.call('select_trade', { trade: 'Electrician' });
+    expect((await t.call('select_batch', { batch: 'shift 2' })).instruction).toMatch(/open at 2:00 pm\. Say so in one short line\.$/);
+    expect(await t.call('select_batch', { batch: 'shift 1' })).toMatchObject({
+      ok: false, error: 'NOT_FOUND', batches: [], instruction: 'Nothing can be marked right now: the next batch opens at 2:00 pm. Say so in one short line.',
+    });
+    const closed = await voiceSession('TR-10432', SHIFT_1_SHUT);
+    closed.env.clock.set(instantAt(TODAY, '20:30'));
+    await closed.call('select_trade', { trade: 'Electrician' });
+    expect(await closed.call('select_batch', { batch: 'shift 2' })).toMatchObject({
+      ok: false, error: 'WINDOW_CLOSED',
+      instruction: 'The attendance windows for Shift 2, Unit 1, Electrician and Shift 2, Unit 2, Electrician and Shift 2, Unit 3, Electrician closed earlier today, so they cannot be marked now; only the principal can correct them. Say so in one short line.',
+    });
+  });
+
+  it('after the last open batch of a trade: the next open batch of another trade is offered, and one select_batch opens it', async () => {
+    const s = await voiceSession('TR-10432', NO_CHECK);
+    await s.ex.kickoff('start', 'English');
+    await openEleS1U2(s);
+    const ask = await s.call('submit_attendance');
+    s.speak();
+    expect((await s.call('submit_attendance', { confirm_token: ask.confirm_token })).instruction).toContain(`call select_batch with id ${keyOf('ele-s1u3')}.`);
+    expect(await s.call('select_batch', { batch: keyOf('ele-s1u3') })).toMatchObject({ ok: true, step: 'ROLL_CALL' });
+    const ask2 = await s.call('submit_attendance');
+    s.speak();
+    const done = await s.call('submit_attendance', { confirm_token: ask2.confirm_token });
+    expect(done).toMatchObject({ ok: true, step: 'SUBMITTED' });
+    expect(done.instruction).toContain(`then ask whether to open Shift 1, Unit 2, Fitter next, in one short question. On yes, call select_batch with id ${keyOf('fit-s1u2')}.`);
+    expect(done.instruction).not.toMatch(/end_voice_session/);
+    const opened = await s.call('select_batch', { batch: keyOf('fit-s1u2') });
+    expect(opened).toMatchObject({ ok: true, step: 'ROLL_CALL', batch: { id: keyOf('fit-s1u2'), label: 'Shift 1, Unit 2, Fitter' } });
+    expect(s.ex.flow()).toMatchObject({ step: 'ROLL_CALL', tradeId: 'fit', sessionKey: keyOf('fit-s1u2') });
+    expect(s.nav.at(-1)).toMatch(/^\/attendance\/mark\?s=fit-s1u2\./);
+  });
+
+  it('a session key of another trade that cannot be marked now says why and keeps the trade', async () => {
+    const s = await voiceSession('TR-10432', NO_CHECK);
+    await s.call('select_trade', { trade: 'Electrician' });
+    expect(await s.call('select_batch', { batch: keyOf('wel-s2u1') })).toMatchObject({ ok: false, error: 'WINDOW_NOT_OPEN', opens: '2:00 pm' });
+    expect(s.ex.flow()).toMatchObject({ step: 'SELECT_BATCH', tradeId: 'ele' });
+  });
+
+  it('another trade\'s session key: a check or a roster that fails leaves the flow and the screen as they were', async () => {
+    const s = await voiceSession('TR-10432');
+    await s.call('select_trade', { trade: 'Electrician' });
+    const nav = [...s.nav];
+    const hasPass = vi.spyOn(s.env.app.services.verification, 'hasPass').mockRejectedValueOnce(new Error('storage broke'));
+    expect(await s.call('select_batch', { batch: keyOf('fit-s1u2') })).toMatchObject({ ok: false, error: 'INTERNAL' });
+    expect(s.ex.flow()).toMatchObject({ step: 'SELECT_BATCH', tradeId: 'ele', sessionKey: null });
+    expect(s.nav).toEqual(nav);
+    hasPass.mockRestore();
+    // the same words again: the gateway of that batch, in its own trade
+    expect(await s.call('select_batch', { batch: keyOf('fit-s1u2') })).toMatchObject({ ok: true, step: 'VERIFY', batch: { id: keyOf('fit-s1u2') } });
+    expect(s.ex.flow()).toMatchObject({ step: 'VERIFY', tradeId: 'fit', sessionKey: keyOf('fit-s1u2') });
+    expect(s.nav.at(-1)).toMatch(/^\/attendance\/open\?s=fit-s1u2\./);
+
+    const t = await voiceSession('TR-10432', NO_CHECK);
+    await t.call('select_trade', { trade: 'Electrician' });
+    const before = [...t.nav];
+    vi.spyOn(t.env.app.services.attendance, 'openRoster').mockRejectedValueOnce(new Error('storage broke'));
+    expect(await t.call('select_batch', { batch: keyOf('fit-s1u2') })).toMatchObject({ ok: false, error: 'INTERNAL' });
+    expect(t.ex.flow()).toMatchObject({ step: 'SELECT_BATCH', tradeId: 'ele', sessionKey: null });
+    expect(t.nav).toEqual(before);
+  });
+
+  it('opening the offered batch of another trade reuses the board the submit loaded: one load of the list on offer, one after opening', async () => {
+    const s = await voiceSession('TR-10432', NO_CHECK);
+    await s.ex.kickoff('start', 'English');
+    await openEleS1U2(s);
+    for (const key of [null, keyOf('ele-s1u3')]) {
+      if (key) await s.call('select_batch', { batch: key });
+      const ask = await s.call('submit_attendance');
+      s.speak();
+      await s.call('submit_attendance', { confirm_token: ask.confirm_token });
+    }
+    const loads = vi.spyOn(s.env.app.services.attendance, 'boardForTrade');
+    expect(await s.call('select_batch', { batch: keyOf('fit-s1u2') })).toMatchObject({ ok: true, step: 'ROLL_CALL', batch: { id: keyOf('fit-s1u2') } });
+    expect(loads.mock.calls.map(([, tradeId]) => tradeId)).toEqual(['ele', 'fit']);
+  });
+
+  it('after the on-screen Submit of the last open batch of a trade: another trade\'s open batch is offered', async () => {
+    const s = await voiceSession('TR-10432', NO_CHECK);
+    await s.ex.kickoff('start', 'English');
+    await openEleS1U2(s);
+    const ask = await s.call('submit_attendance');
+    s.speak();
+    await s.call('submit_attendance', { confirm_token: ask.confirm_token });
+    await s.call('select_batch', { batch: keyOf('ele-s1u3') });
+    const told = forwardDraftChanges(s);
+    expect((await screenSubmit(s, keyOf('ele-s1u3'))).ok).toBe(true);
+    expect(told.at(-1)).toMatch(/^\[APP\] Trainer pressed Submit on screen\. Attendance for Shift 1, Unit 3, Electrician is submitted and locked\. Say "submitted" in a few words, then ask whether to open Shift 1, Unit 2, Fitter next/);
+  });
+
+  it('after the on-screen Submit: the same offer of the next open batch', async () => {
+    const { s, key, told } = await readyToSubmit();
+    expect((await screenSubmit(s, key)).ok).toBe(true);
+    expect(told.at(-1)).toMatch(/^\[APP\] Trainer pressed Submit on screen\. Attendance for Shift 1, Unit 2, Electrician is submitted and locked\. Say "submitted" in a few words, then ask whether to open Shift 1, Unit 3, Electrician next/);
+  });
+
+  // last in the file: once seen, the ?voiceDebug=1 flag holds for the module (src/services/voice/debug.ts)
+  it('a kickoff auto-open that throws falls back to the offer and leaves a debug line with ids only', async () => {
+    const s = await voiceSession('TR-10518', { mapping: { model: 'batch' } });
+    vi.spyOn(s.env.app.services.verification, 'hasPass').mockRejectedValue(new TypeError('Sunita Patil broke it'));
+    vi.stubGlobal('location', { search: '?voiceDebug=1' });
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    try {
+      const text = await s.ex.kickoff('start', 'English');
+      expect(text).toMatch(/^\[APP\] Session started\. Greet the trainer .*Only Shift 1, Unit 2, Electrician can be marked now\. .*call select_batch with id ele-s1u2\./);
+      expect(info).toHaveBeenCalledWith(`[voice] kickoff auto-open failed for ${keyOf('ele-s1u2')}: TypeError`);
+      expect(info.mock.calls.flat().join(' ')).not.toMatch(/Sunita|Patil|broke/);
+    } finally {
+      info.mockRestore();
+      vi.unstubAllGlobals();
+    }
   });
 });

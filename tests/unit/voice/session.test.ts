@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Result } from '@/lib/result';
-import { RECONNECT_EVENT, limitEvent } from '@/services/voice/app-events';
+import { RECONNECT_EVENT, RESUME_EVENT, limitEvent } from '@/services/voice/app-events';
 import { INTERNAL_RESULT, type ToolResult } from '@/services/voice/executor';
 import type { TokenError } from '@/services/voice/live/token-client';
 import type { LiveToken } from '@/services/voice/live/transport';
@@ -205,6 +205,17 @@ describe('VoiceSession', () => {
     expect(s.generation()).toBe(2);
   });
 
+  it('a question pending when the connection drops reaches the Reconnect kickoff (asked again with a new code there)', async () => {
+    const { h, s } = await live();
+    h.executor.respond(() => ({ ok: false, error: 'NEEDS_CONFIRMATION', confirm_token: 'AB23', instruction: 'Ask: mark Pradeep absent? confirm_token "AB23"' }));
+    h.transport.emit({ toolCalls: [{ id: 'a', name: 'mark_staff', args: { staff: 'Pradeep', status: 'ABSENT' } }] });
+    await vi.waitFor(() => expect(h.transport.toolResponses).toHaveLength(1));
+    h.transport.drop();
+    s.reconnect();
+    await vi.waitFor(() => expect(status(s)).toBe('listening'));
+    expect(h.executor.kickoffs).toEqual([null, 'Ask: mark Pradeep absent? confirm_token "AB23"']);
+  });
+
   it('goAway at a quiet moment swaps connections: two connects, the refresh text, generation 2', async () => {
     const { h, s } = await live();
     h.transport.emit({ resumption: { handle: 'h-1', resumable: true } });
@@ -283,6 +294,14 @@ describe('VoiceSession', () => {
     expect(h.transport.streamEnds).toBe(ends + 1);
   });
 
+  it('Resume sends the executor\'s own resume text (the principal has no student to continue from)', async () => {
+    const { h, s } = await live();
+    h.executor.resumeText = () => '[APP] The trainer is back from the screen.';
+    s.pause();
+    s.resume();
+    expect(h.transport.texts.at(-1)).toBe('[APP] The trainer is back from the screen.');
+  });
+
   it('Use screen pauses (mic off, stream end, quiet line); Resume continues; 20 s hidden pauses', async () => {
     const { h, s } = await live();
     s.pause();
@@ -293,7 +312,7 @@ describe('VoiceSession', () => {
     s.resume();
     expect(status(s)).toBe('listening');
     expect(h.audio.micEnabled.at(-1)).toBe(true);
-    expect(h.transport.texts.at(-1)).toBe('[APP] The trainer is back. Call get_status and continue from the current student.');
+    expect(h.transport.texts.at(-1)).toBe(RESUME_EVENT); // the executor's resume text (the stub's: the marking executor's)
     s.setHidden(true);
     expect(h.transport.streamEnds).toBe(2);
     await vi.advanceTimersByTimeAsync(19_000);

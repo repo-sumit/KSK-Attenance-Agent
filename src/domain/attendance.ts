@@ -62,7 +62,16 @@ export function parseSessionKey(key: SessionKey): SessionAddress | null {
   return subjectId ? { batchId, date, slot, subjectId } : { batchId, date, slot };
 }
 
-export type SyncState = 'synced' | 'pending' | 'failed';
+/**
+ * Where a locked record stands with the server. `rejected`: the server refused it for good (for example someone
+ * else submitted the same session first); it stays on the device, is not pushed again, and the server's copy wins.
+ */
+export type SyncState = 'synced' | 'pending' | 'failed' | 'rejected';
+
+/** A record still on its way to the server (pending or failed). A rejected one is not: it will never be sent. */
+export function awaitsSync(record: { readonly syncState: SyncState }): boolean {
+  return record.syncState === 'pending' || record.syncState === 'failed';
+}
 
 export interface CapturedLocation extends GeoPoint {
   readonly accuracyM: number;

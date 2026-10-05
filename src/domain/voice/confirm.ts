@@ -1,10 +1,11 @@
 /**
- * Confirmation tokens for voice mode (D-082). Submitting a roll and marking everyone who is left are the
- * two voice actions that change a lot at once, so the model cannot do either in the breath it asks. The
+ * Confirmation tokens for Voice Agent (D-082). Submitting a roll and marking everyone who is left are the
+ * two voice actions that change a lot at once, and the principal's mark for a staff member is final for the day
+ * (D-141), so the model cannot do any of them in the breath it asks. The
  * executor issues a short code with the question, and the model can only act by echoing that code. A code
  * is good for one answer:
  *  - it belongs to one action and its arguments (`argsKey`, for example `${sessionKey}|PRESENT`);
- *  - it belongs to one draft revision, so a tap or a voice mark in between voids it;
+ *  - it belongs to one draft revision (for a staff mark, today's staff records), so a change in between voids it;
  *  - it belongs to one Live connection (`generation`), so a swapped or dropped connection voids it;
  *  - it lasts CONFIRM_TTL_MS;
  *  - it is accepted only after the trainer has spoken AFTER the question: the model turn it was issued in has
@@ -17,7 +18,7 @@
  * app, a fixed list in tests).
  */
 
-export type ConfirmAction = 'submit_attendance' | 'mark_remaining';
+export type ConfirmAction = 'submit_attendance' | 'mark_remaining' | 'mark_staff';
 
 /** How long a token stays valid after it is issued: 2 minutes. */
 export const CONFIRM_TTL_MS = 120_000;
