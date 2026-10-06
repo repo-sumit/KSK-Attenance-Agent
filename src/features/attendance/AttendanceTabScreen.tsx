@@ -3,18 +3,18 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { Segmented } from '@/components/ui/Segmented';
 import { ScreenLayout } from '@/components/shell/ScreenLayout';
+import { TopBand } from '@/components/shell/TopBand';
 import { AppHeader } from '@/features/shell/AppHeader';
 import { useI18n } from '@/hooks/i18n';
 import { useSession } from '@/hooks/session';
 import { routes } from '@/lib/routes';
 import { AttendanceBoard } from './AttendanceBoard';
-import styles from './AttendanceTab.module.css';
 
 /**
  * Students / Staff switch for the institute view (only when staff attendance is on).
  * `onSwitch` lets a screen intercept the change (e.g. to protect unsaved staff marks).
- * Both screens use the reading column and the capped track (480px from 600px, at the
- * column's start), so the switch keeps its place and size when it flips between them.
+ * A screen-level view switch: md, spanning the column (D-159). Both screens put it first in the same TopBand on the
+ * reading column, so it keeps its y, width and background when it flips between them.
  */
 export function ViewSwitch({ value, onSwitch }: { readonly value: 'students' | 'staff'; readonly onSwitch?: (go: () => void) => void }) {
   const { t } = useI18n();
@@ -23,7 +23,6 @@ export function ViewSwitch({ value, onSwitch }: { readonly value: 'students' | '
     <Segmented
       label={t('principal.view')}
       fullWidth
-      capped
       value={value}
       onChange={(v) => {
         const go = () => router.replace(v === 'staff' ? routes.staff : routes.attendance);
@@ -57,7 +56,13 @@ export function AttendanceTabScreen() {
   return (
     <ScreenLayout
       header={<AppHeader title={t('nav.attendance')} />}
-      top={j.staff.principalStaffView ? <div className={styles.switch}><ViewSwitch value="students" /></div> : undefined}
+      top={
+        j.staff.principalStaffView ? (
+          <TopBand>
+            <ViewSwitch value="students" />
+          </TopBand>
+        ) : undefined
+      }
       area="attendance"
       bottomNav
       width="reading"

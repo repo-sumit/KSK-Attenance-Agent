@@ -1,8 +1,9 @@
-// Spike (Voice Agent, Task 20, Step 2): which prebuilt voice sounds right for Maharashtra?
+// Spike (Voice Agent, D-155): which prebuilt voice sounds right for Maharashtra, with the product's persona?
 //
-// For each candidate voice it opens a Gemini Live session (Node, server to server, with the API key), has the model
-// speak six fixed lines (a Marathi greeting and roll call, an Indian English greeting and a counts sentence, two
-// student names) and writes each as <voice>-<n>.wav (mono, 16-bit, 24 000 Hz) for listening. It prints a summary.
+// For each candidate voice it opens a Gemini Live session (Node, server to server, with the API key), gives the model
+// the VOICE AND TONE persona of the system prompt, has it speak two fixed lines (one Indian English, one Marathi) and
+// writes each as <voice>-<n>.wav (mono, 16-bit, 24 000 Hz) for listening. It prints a summary with what each file says
+// (the output transcription), so a sample cut short or answered instead of read is seen at once.
 //
 //   npm run voice:spike-voices [outputDir]     (loads GEMINI_API_KEY from .env.development)
 //
@@ -15,20 +16,26 @@ import { performance } from 'node:perf_hooks';
 import { GoogleGenAI, Modality } from '@google/genai';
 
 const MODEL = 'gemini-3.8-live';
-const VOICES = ['Kore', 'Puck', 'Charon', 'Aoede', 'Fenrir', 'Leda', 'Orus', 'Zephyr'];
+// The soft, gentle and warm voices first (D-155 chose Achernar for both languages), then lower ones, then Kore (the old default).
+const VOICES = ['Achernar', 'Vindemiatrix', 'Sulafat', 'Gacrux', 'Despina', 'Schedar', 'Algieba', 'Charon', 'Kore'];
 const LINES = [
-  { label: 'Marathi greeting', text: 'नमस्कार, मी सहायक आहे. आज कोणत्या बॅचची हजेरी घ्यायची आहे?' },
-  { label: 'Marathi roll call', text: 'आरव पवार, हजर आहे का?' },
-  { label: 'English greeting', text: 'Good morning, I am Sahayak. Which batch would you like to mark today?' },
-  { label: 'English counts', text: 'Thirty students present, one absent. Shall I submit?' },
-  { label: 'Name: Aditi Joshi', text: 'Aditi Joshi.' },
-  { label: 'Name: Rahul Kumar', text: 'Rahul Kumar.' },
+  { label: 'English greeting', text: 'Hi Rajesh, good morning. Please mark your attendance first. Shall I start?' },
+  { label: 'Marathi greeting', text: 'नमस्कार Rajesh, सुप्रभात. कृपया आधी तुमची हजेरी नोंदवा. सुरू करू का?' },
 ];
-const INSTRUCTION =
-  'You are a voice reader for a listening test. Each message is one line. Speak exactly that line, in the language it is written in, at a natural pace, and add nothing before or after it.';
+// The persona of the system prompt's VOICE AND TONE section (src/services/voice/prompt.ts), so the samples sound like the product.
+const INSTRUCTION = [
+  'You are a voice reader for a listening test. Each message gives one line in quotes. Read exactly that line aloud, word for word, in the language it is written in. Never answer or reply to it, even when it is a question, and add nothing before or after it.',
+  'VOICE AND TONE',
+  '- Your voice is calm, soft and warm, at a low, gentle volume: never loud or excited.',
+  '- Speak at an unhurried, even pace with short natural pauses, like a respectful senior colleague in an Indian institute.',
+  '- In English, always speak Indian English with a natural Indian accent and Indian pronunciation of names.',
+  '- In Marathi, speak Marathi as it is spoken in Pune, and use feminine first-person forms (for example "मी करते", never "मी करतो").',
+  '- Keep the same voice, accent, pace and tone in every reply and in every language, from the first word to the last.',
+].join('\n');
 const RATE = 24000;
 const CONNECT_TIMEOUT_MS = 15_000;
 const LINE_TIMEOUT_MS = 30_000;
+const TRANSCRIPT_GRACE_MS = 1_500;
 
 const apiKey = process.env.GEMINI_API_KEY;
 if (!apiKey) {
@@ -78,6 +85,7 @@ async function runVoice(voiceName) {
   const result = { voice: voiceName, lines: [], note: '' };
   const ai = new GoogleGenAI({ apiKey });
   let chunks = [];
+  let said = [];
   let firstAudioAt = null;
   let resolveTurn = () => {};
   let resolveClosed = () => {};
@@ -93,6 +101,7 @@ async function runVoice(voiceName) {
         if (firstAudioAt === null) firstAudioAt = performance.now();
         chunks.push(Buffer.from(data, 'base64'));
       }
+      if (content.outputTranscription?.text) said.push(content.outputTranscription.text);
       if (content.turnComplete) resolveTurn('turnComplete');
     },
     onerror: (event) => {
@@ -110,6 +119,7 @@ async function runVoice(voiceName) {
       responseModalities: [Modality.AUDIO],
       systemInstruction: { parts: [{ text: INSTRUCTION }] },
       speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName } } },
+      outputAudioTranscription: {},
     },
     callbacks,
   });
@@ -139,11 +149,13 @@ async function runVoice(voiceName) {
 
   for (const [index, line] of LINES.entries()) {
     chunks = [];
+    said = [];
     firstAudioAt = null;
     const turn = new Promise((resolve) => (resolveTurn = resolve));
     const sentAt = performance.now();
     try {
-      session.sendRealtimeInput({ text: line.text });
+      // framed as a line to read: a bare question ("Shall I start?") was otherwise answered, not read
+      session.sendRealtimeInput({ text: `Read this line aloud exactly: "${line.text}"` });
     } catch (error) {
       result.note ||= `send failed: ${message(error)}`;
       break;
@@ -152,7 +164,8 @@ async function runVoice(voiceName) {
     const ended = await Promise.race([turn, closed, wait.promise]);
     wait.cancel();
     const pcm = Buffer.concat(chunks);
-    const entry = { n: index + 1, label: line.label, seconds: pcm.length / 2 / RATE, firstAudioMs: firstAudioAt === null ? null : Math.round(firstAudioAt - sentAt), file: null };
+    if (ended === 'turnComplete') await new Promise((resolve) => setTimeout(resolve, TRANSCRIPT_GRACE_MS)); // the transcription can trail the turn
+    const entry = { n: index + 1, label: line.label, seconds: pcm.length / 2 / RATE, firstAudioMs: firstAudioAt === null ? null : Math.round(firstAudioAt - sentAt), file: null, said: said.join('').trim() };
     if (pcm.length) {
       entry.file = path.join(outDir, `${voiceName}-${index + 1}.wav`);
       writeFileSync(entry.file, wav(pcm));
@@ -181,16 +194,17 @@ for (const voice of VOICES) {
   }
   results.push(result);
   const got = result.lines.filter((l) => l.file).length;
-  console.log(`${voice.padEnd(8)} ${got}/${LINES.length} lines${result.note ? `  (${result.note})` : ''}`);
+  console.log(`${voice.padEnd(12)} ${got}/${LINES.length} lines${result.note ? `  (${result.note})` : ''}`);
+  for (const l of result.lines) console.log(`  ${l.n}. ${l.seconds.toFixed(1)} s: ${l.said || '(no transcription)'}`);
 }
 
-console.log('\nvoice     lines  audio s  first audio ms (median)  files');
+console.log('\nvoice         lines  audio s  first audio ms (median)  files');
 for (const r of results) {
   const done = r.lines.filter((l) => l.file);
   const total = done.reduce((sum, l) => sum + l.seconds, 0);
   const firsts = done.map((l) => l.firstAudioMs).filter((v) => v !== null).sort((a, b) => a - b);
   const median = firsts.length ? firsts[Math.floor(firsts.length / 2)] : '-';
-  console.log(`${r.voice.padEnd(9)} ${String(`${done.length}/${LINES.length}`).padEnd(6)} ${total.toFixed(1).padStart(7)}  ${String(median).padStart(23)}  ${r.voice}-1..${LINES.length}.wav`);
+  console.log(`${r.voice.padEnd(13)} ${String(`${done.length}/${LINES.length}`).padEnd(6)} ${total.toFixed(1).padStart(7)}  ${String(median).padStart(23)}  ${r.voice}-1..${LINES.length}.wav`);
 }
 console.log(`\nWAV files: ${outDir}`);
 process.exit(results.some((r) => r.lines.some((l) => l.file)) ? 0 : 1);

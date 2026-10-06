@@ -70,14 +70,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* The submit sheet: how Present was counted, under the numbers it explains. */
-.breakdown {
-  margin-top: var(--space-8);
-  font: var(--type-label-small);
-  letter-spacing: var(--ls-label-small);
-  color: var(--color-text-secondary);
-  font-variant-numeric: tabular-nums;
-}
 .name {
   font: var(--type-title-small);
   letter-spacing: var(--ls-title-small);

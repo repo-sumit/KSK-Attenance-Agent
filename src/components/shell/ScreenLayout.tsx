@@ -5,7 +5,7 @@ import { cx } from '@/lib/cx';
 import { ToastViewport } from '@/components/ui/Toast';
 import { AppBottomNav, NavigationGuardContext, type NavigationGuard } from './AppNav';
 import { ConnectivityBanner } from './ConnectivityBanner';
-import { registerDockAnchor } from './DockAnchor';
+import { registerDock } from './DockInset';
 import styles from './ScreenLayout.module.css';
 
 const AreaContext = createContext<NavTab | undefined>(undefined);
@@ -39,6 +39,11 @@ interface ScreenLayoutProps {
   readonly inlineFooter?: boolean;
   /** Tablet and desktop: the footer's items sit side by side, centred (two actions, or a message and its action); phones stay stacked. */
   readonly footerLayout?: 'stack' | 'row';
+  /**
+   * A white screen whose content scrolls under its footer (login with the Demo accounts list): one divider above the
+   * footer, as every scrolling screen's footer has, inset to the card's content in card mode (U17).
+   */
+  readonly footerDivider?: boolean;
   readonly children: ReactNode;
 }
 
@@ -51,12 +56,12 @@ interface ScreenLayoutProps {
  * screen; from the SwiftChat medium breakpoint up it still fills the viewport,
  * and content keeps a readable column (`width`) inside the grid margins.
  */
-export function ScreenLayout({ header, banner = true, top, footer, area, bottomNav = false, guardNavigation, surface = 'app', padding = 'page', width = 'wide', card = false, inlineFooter = false, footerLayout = 'stack', children }: ScreenLayoutProps) {
+export function ScreenLayout({ header, banner = true, top, footer, area, bottomNav = false, guardNavigation, surface = 'app', padding = 'page', width = 'wide', card = false, inlineFooter = false, footerLayout = 'stack', footerDivider = false, children }: ScreenLayoutProps) {
   return (
     <AreaContext.Provider value={area}>
       <NavigationGuardContext.Provider value={guardNavigation}>
         <div className={cx(styles.page, card && styles.pageCard)}>
-          <div className={cx(styles.frame, styles[surface], styles[`w-${card ? 'form' : width}`], card && styles.card, inlineFooter && styles.inlineFooter, footerLayout === 'row' && styles.footerRow)}>
+          <div className={cx(styles.frame, styles[surface], styles[`w-${card ? 'form' : width}`], card && styles.card, inlineFooter && styles.inlineFooter, footerLayout === 'row' && styles.footerRow, footerDivider && styles.footerDivider)}>
             {header}
             {banner && (
               // Always in the DOM, so screen readers announce going offline (a live region that arrives with its text is often missed).
@@ -68,11 +73,10 @@ export function ScreenLayout({ header, banner = true, top, footer, area, bottomN
             <main id="main" tabIndex={-1} className={cx(styles.main, styles[`pad-${padding}`], !header && styles.headerless)}>
               {children}
             </main>
-            <div className={styles.dock}>
+            {/* The floating Voice Agent widget sits just above this dock while it is pinned to the bottom edge (DockInset, D-147). */}
+            <div ref={registerDock} className={styles.dock}>
               {/* The toast anchor has no height: a toast floats above the dock's top. */}
               <ToastViewport />
-              {/* Where floating controls sit (the voice card's band, D-133): empty unless one is shown. */}
-              <div ref={registerDockAnchor} className={styles.floatAnchor} data-float-anchor="" />
               {footer && <div className={styles.footer}>{footer}</div>}
               {bottomNav && area && <AppBottomNav active={area} />}
             </div>

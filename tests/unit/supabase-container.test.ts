@@ -10,7 +10,7 @@ import { MockAttendanceRepository, MockBatchPackRepository, MockOfflineQueueRepo
 import { SupabaseAttendanceRepository } from '@/repositories/supabase/attendance';
 import { createMockContainer, createSupabaseContainer } from '@/services/container';
 import { DEFAULT_SIMULATION, StaticSimulationSource } from '@/services/simulation';
-import { signIn, verify } from '../helpers/app';
+import { SELF_FIRST_OFF, signIn, verify } from '../helpers/app';
 import { FakeDataClient, seedMasterData } from './supabase-fake';
 
 const TODAY = '2026-09-25';
@@ -39,7 +39,7 @@ function setup() {
   const simulation = new StaticSimulationSource({ ...DEFAULT_SIMULATION, speed: 0 });
   const client = new FakeDataClient();
   seedMasterData(client, TODAY);
-  const app = createSupabaseContainer({ store: new MemoryStore(), preferencesStore: new MemoryStore(), clock, simulation, client, cacheStore: new MemoryStore() });
+  const app = createSupabaseContainer({ store: new MemoryStore(), preferencesStore: new MemoryStore(), clock, simulation, client, cacheStore: new MemoryStore(), configOverrides: { get: () => SELF_FIRST_OFF } });
   app.services.sync.start();
   return { app, client, simulation };
 }

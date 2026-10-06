@@ -90,6 +90,7 @@ export const en = {
     checkingInstitute: "Checking institute…",
     checkingTrainer: "Checking Trainer ID…",
     signingIn: "Signing in…",
+    lookupFailed: "Couldn’t check right now. Try again.",
   },
   face: {
     introTitle: "Set up face verification",
@@ -158,6 +159,8 @@ export const en = {
     checkingFace: "Checking…",
     identityVerified: "Identity verified",
     openingList: "Opening student list…",
+    // A self check from the last few minutes also opened this class (D-152).
+    reused: "Verified a moment ago",
     oneMoreStep: "One more step",
     preparing: "Getting things ready…",
     confirmTitle: "You’re at {institute}",
@@ -236,10 +239,17 @@ export const en = {
     notFoundBody: "This link doesn’t match anything in the app.",
     goHome: "Go to Home",
   },
+  // Own attendance before students (D-152).
+  selfFirst: {
+    title: "Mark your attendance first",
+    body: "Your own attendance for today isn’t marked yet. Mark it, then open {session}.",
+    action: "Mark my attendance",
+  },
   greeting: {
     morning: "Good morning, {name}",
     afternoon: "Good afternoon, {name}",
     evening: "Good evening, {name}",
+    night: "Good night, {name}",
   },
   home: {
     todays: "Today’s attendance",
@@ -259,6 +269,7 @@ export const en = {
     submittedAt: "Submitted {time}",
     tradeOverview: "{trade} overview",
     chooseTrade: "Choose a trade, then a batch",
+    selfFirst: "Mark your own attendance before your classes.",
   },
   announce: {
     title: "Announcements",
@@ -333,6 +344,7 @@ export const en = {
     daily: "Daily attendance",
     windowRange: "{start} – {end}",
     subjectSession: "{subject}",
+    selfFirst: "Mark your attendance first",
   },
   status: {
     present: "Present",
@@ -413,10 +425,9 @@ export const en = {
     allPresent: "All students are present.",
     submit: "Submit attendance",
     goBack: "Go back and edit",
-    sheetTitle: "Submit attendance?",
-    sheetBody: "After submission, you won’t be able to edit this attendance.",
-    sheetCta: "Submit",
+    finalNote: "After you submit, this attendance can’t be edited.",
     submitting: "Submitting attendance…",
+    saveFailed: "Couldn’t save. Your marks are kept, try again.",
     until: "until {date}",
   },
   result: {
@@ -442,10 +453,8 @@ export const en = {
     notSubmittedTitle: "Not submitted yet",
     notSubmittedBody: "Nobody has marked {session} today.",
     notSubmittedPast: "Nothing was submitted for {session} on {date}.",
-    sessions: "Sessions today",
   },
   principal: {
-    greetingSub: "{date} · {institute}",
     studentCard: "Student attendance",
     salutation: "Principal",
     countOf: "{done} of {total}",
@@ -518,6 +527,7 @@ export const en = {
     byPrincipal: "Marked by principal",
     save: { one: "Save {count} change", other: "Save {count} changes" },
     saved: "Staff attendance saved",
+    savedOffline: "Saved on this phone · will sync automatically",
     savedPartial: "{saved} saved · {skipped} already marked themselves",
     saveFailed: "Couldn’t save. Your choices are kept, try again.",
     notSaved: "Not saved yet",
@@ -571,13 +581,14 @@ export const en = {
     labelCustom: "{from} – {to}",
     from: "From",
     to: "To",
-    sumStaff: "{range} · Staff attendance {pct}% · {count} staff",
-    sumCorrections: {
-      one: "{range} · {count} correction recorded",
-      other: "{range} · {count} corrections recorded",
+    /** The detail report's summary, as parts joined by "·": the range, then these. */
+    sumStaffPct: "Staff attendance {pct}%",
+    staffCount: { one: "{count} staff", other: "{count} staff" },
+    correctionCount: {
+      one: "{count} correction recorded",
+      other: "{count} corrections recorded",
     },
     noData: "No attendance recorded for this range yet.",
-    daysPresent: "{present} / {days} days",
     logged: "Logged",
     correctionRow: "{student} · {from} → {to}",
     correctionSub: "{session} · “{reason}” · {by} · {when}",
@@ -624,6 +635,23 @@ export const en = {
       one: "{count} student · last {days} days",
       other: "{count} students · last {days} days",
     },
+    /** The principal's Staff attendance section and the staff detail report (D-154). */
+    staffAbsentCount: "Absent {count}",
+    staffUnmarkedCount: "Not marked {count}",
+    /** The total tile of one person's days in a report (the expanded staff row). */
+    tileDays: "Days",
+    staffNotMarkedToday: {
+      one: "{count} staff not marked today",
+      other: "{count} staff not marked today",
+    },
+    staffToday: "Today: {status}",
+    notMarkedToday: "Not marked today",
+    staffUnmarkedDays: {
+      one: "{count} day not marked",
+      other: "{count} days not marked",
+    },
+    leaveDays: { one: "Leave: {count} day", other: "Leave: {count} days" },
+    staffMore: "Choose dates · print",
     /** Downloading the monthly attendance register of a batch or a trade (D-137). */
     register: {
       batchButton: "Download register",
@@ -642,6 +670,9 @@ export const en = {
       unavailable:
         "Downloading isn’t available inside this app yet. Open KSK Attendance in a browser to download.",
       problem: "Couldn’t prepare this register. Try again.",
+      /** The Staff attendance section's button and the sheet's subtitle for the staff register (D-154). */
+      staffButton: "Staff register",
+      staffFor: "All staff · {institute}",
     },
   },
   /** The downloadable monthly attendance register (D-137). */
@@ -651,6 +682,11 @@ export const en = {
     authority: "Government of Maharashtra",
     instituteLine: "Institute code {code} · {district}",
     title: "Monthly Attendance Register",
+    /** The staff register (D-154). */
+    staffTitle: "Monthly Staff Attendance Register",
+    staffHowCounted:
+      "Present and OJT count as one day and a half day as half a day. A working day is a day with any staff record; a working day without a record for a person is not marked, not absent.",
+    staffNoRecords: "No staff attendance was recorded in this period.",
     toDate: "{range} (to date)",
     batchTitle: "{trade} · Shift {shift} · Unit {unit}",
     batchValue: "Shift {shift} · Unit {unit}",
@@ -665,6 +701,8 @@ export const en = {
       classDays: "Class days",
       threshold: "Threshold",
       generated: "Generated",
+      staff: "Staff",
+      workingDays: "Working days",
     },
     thresholdValue: "{pct}% attendance",
     range: "{from} – {to}",
@@ -679,6 +717,10 @@ export const en = {
       atRiskSub: "Below {pct}% with {days}+ days marked",
       classDays: "Class days held",
       upTo: "Up to {date}",
+      ofStaff: { one: "of {count} staff", other: "of {count} staff" },
+      unmarked: "Days not marked",
+      unmarkedSub: "Not counted as absent",
+      workingDays: "Working days",
     },
     col: {
       no: "#",
@@ -689,6 +731,8 @@ export const en = {
       leave: "Leave",
       pct: "%",
       remark: "Remark",
+      staff: "Staff",
+      unmarked: "Not marked",
     },
     presentByDay: "Present (by day)",
     remarkAtRisk: "At risk",
@@ -701,6 +745,7 @@ export const en = {
       pending: "Today, not submitted yet",
       corrected: "Corrected by the principal",
       sessions: "Present in 1 of 2 sessions",
+      noRecords: "No staff records or Sunday",
     },
     howCounted:
       "Present and OJT count as one day, a half day as half a day, and a day with several sessions counts once.",
@@ -758,7 +803,7 @@ export const en = {
     downloadMore: "Download more batches",
     refreshed: "Downloaded data refreshed",
     connectFirst: "Connect to the internet to refresh",
-    eodNote: "Records not synced by {time} are flagged to the principal.",
+    eodNote: "Records not synced by {time} are reported as missing for the day.",
     downloadTitle: "Download batches",
     downloading: "Downloading student data…",
     downloadCta: {
@@ -774,6 +819,12 @@ export const en = {
     backToOffline: "Back to Offline data",
     noPacks: "No batches downloaded yet.",
     selfRecord: "My attendance",
+    staffRecord: "Staff attendance · {name}",
+    correctionRecord: "Correction · {student}",
+    staffRecordUnnamed: "Staff attendance",
+    correctionRecordUnnamed: "Correction",
+    syncTitle: "Sync status",
+    seeWaiting: "See what’s waiting",
     todayAt: "today, {time}",
     refreshAll: "Refresh all data",
     refreshingAll: "Refreshing all data…",
@@ -842,13 +893,15 @@ export const en = {
     modeHintAsk: "Speak to ask about attendance, reports and staff.",
     unavailableOffline: "Voice Agent needs the internet.",
     stop: "Stop voice",
-    useScreen: "Use screen",
+    /** The card's pause action: its label; `pauseVoice` is its name ("Use screen" collided with the agent's "look at the screen"). */
+    pause: "Pause",
+    pauseVoice: "Pause voice",
     resume: "Resume voice",
     reconnect: "Reconnect",
     pushToTalk: "Push to talk",
     holdToTalk: "Hold to talk",
     you: "You",
-    agent: "Sahayak",
+    agent: "Voice Agent",
     moreControls: "More voice controls",
     minimize: "Minimize voice controls",
     showControls: "Show voice controls",
@@ -857,8 +910,12 @@ export const en = {
       listening: "Listening",
       holdToTalk: "Hold to talk",
       speaking: "Speaking",
+      /** A tool call has run longer than 400 ms with no agent audio (D-156). */
+      working: "Working…",
       paused: "Paused",
       reconnecting: "Reconnecting…",
+      /** The face camera holds the mic off; voice comes back by itself when the check ends (D-148). */
+      camera: "Mic off for face check",
       error: "Voice stopped",
       ended: "Voice ended",
     },

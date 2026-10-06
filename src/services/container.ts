@@ -53,6 +53,7 @@ import { simulatedDelay, type SimulationSource } from './simulation';
 import { StaffAttendanceService } from './staff-attendance';
 import { SyncService, type SyncOutbox } from './sync';
 import { VerificationService } from './verification';
+import { Lifetime } from './lifetime';
 import { ActionBus } from './voice/action-bus';
 import { VoiceService } from './voice/service';
 
@@ -100,6 +101,14 @@ export interface AppContainer {
   readonly mockDatabase: MockDatabase;
   /** Demo-only handle to the shared project (daily seeding, Reset shared demo data); null on the device source. */
   readonly serverClient: DataClient | null;
+  /**
+   * Stops what keeps this container live (D-158): the sync loop, a running voice session, the Realtime channel, the
+   * connectivity listeners and whatever boot registered with `onDispose`. Strict Mode and Fast Refresh leave a
+   * second container behind in dev. A second call does nothing.
+   */
+  dispose(): void;
+  /** Registers a release for `dispose` (boot's subscriptions); after a dispose it runs at once. */
+  onDispose(release: () => void): void;
 }
 
 export interface MockContainerOptions {
@@ -107,6 +116,8 @@ export interface MockContainerOptions {
   /** Device-level preferences (language). Separate from mock data. */
   readonly preferencesStore: KeyValueStore;
   readonly clock: Clock;
+  /** The real time of day, for greetings only (D-151): the demo passes the device clock; omitted, it is `clock`. */
+  readonly wallClock?: Clock;
   readonly simulation: SimulationSource;
   readonly configOverrides?: ConfigOverridesSource;
   readonly state?: StateConfiguration;
@@ -164,7 +175,7 @@ export function createSupabaseContainer(opts: SupabaseContainerOptions): AppCont
   });
   // Face flags saved offline reach the shared copy at start when online (a reload) and when the connection returns
   // (corrections go with the sync: `outbox`).
-  connectivity.subscribe((online) => {
+  const unwatch = connectivity.subscribe((online) => {
     if (online) void supabase.faceEnrolment.flush();
   });
   if (connectivity.isOnline()) void supabase.faceEnrolment.flush();
@@ -183,7 +194,11 @@ export function createSupabaseContainer(opts: SupabaseContainerOptions): AppCont
     syncGateway: supabase.syncGateway,
     voiceUsage: supabase.voiceUsage,
   };
-  return assemble(opts, { dataSource: 'supabase', bus, db, repositories, connectivity, serverClient: supabase.client, outbox: supabase.corrections });
+  const release = () => {
+    unwatch();
+    supabase.live.dispose();
+  };
+  return assemble(opts, { dataSource: 'supabase', bus, db, repositories, connectivity, serverClient: supabase.client, outbox: supabase.corrections, release });
 }
 
 interface Assembly {
@@ -195,9 +210,11 @@ interface Assembly {
   readonly serverClient: DataClient | null;
   /** The Supabase source's correction outbox: counted and drained by the sync (Task 17). */
   readonly outbox?: SyncOutbox;
+  /** The source's own release on dispose (the Supabase Realtime channel and connectivity listener). */
+  readonly release?: () => void;
 }
 
-function assemble(opts: MockContainerOptions, { dataSource, bus, db, repositories, connectivity, serverClient, outbox }: Assembly): AppContainer {
+function assemble(opts: MockContainerOptions, { dataSource, bus, db, repositories, connectivity, serverClient, outbox, release }: Assembly): AppContainer {
   const delay = simulatedDelay(opts.simulation);
   const { masterData, faceEnrolment } = repositories;
 
@@ -212,7 +229,7 @@ function assemble(opts: MockContainerOptions, { dataSource, bus, db, repositorie
   const auth = new MockAuthService(masterData, repositories.session, opts.clock);
 
   const location: LocationProvider = opts.realDevice ? new BrowserLocationProvider() : new SimulatedLocationProvider(opts.simulation);
-  const session = new SessionService(auth, masterData, configuration, faceMatch, opts.clock);
+  const session = new SessionService(auth, masterData, configuration, faceMatch, opts.clock, opts.wallClock ?? opts.clock);
 
   const sync = new SyncService({
     queue: repositories.offlineQueue,
@@ -233,6 +250,7 @@ function assemble(opts: MockContainerOptions, { dataSource, bus, db, repositorie
     attendance: repositories.attendance,
     corrections: repositories.corrections,
     verification: repositories.verification,
+    staffAttendance: repositories.staffAttendance,
     offlineQueue: repositories.offlineQueue,
     packs: repositories.packs,
     isOnline: () => connectivity.isOnline(),
@@ -281,5 +299,7 @@ function assemble(opts: MockContainerOptions, { dataSource, bus, db, repositorie
     }),
   };
 
-  return { dataSource, repositories, services, bus, clock: opts.clock, simulation: opts.simulation, mockDatabase: db, serverClient };
+  const lifetime = new Lifetime([() => services.sync.stop(), () => services.voice.dispose(), ...(release ? [release] : [])]);
+  const lifecycle = { dispose: () => lifetime.dispose(), onDispose: (fn: () => void) => lifetime.add(fn) };
+  return { dataSource, repositories, services, bus, clock: opts.clock, simulation: opts.simulation, mockDatabase: db, serverClient, ...lifecycle };
 }

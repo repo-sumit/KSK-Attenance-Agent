@@ -1,9 +1,8 @@
 /*
- * The voice card (D-133, D-136): what the floating voice button grows into while Voice Agent is on. VoiceFloat places
- * it at the bottom-right of the screen's content column, in the band ScreenLayout reserves above its footer and
- * bottom navigation, so it never covers a row. From 400px wide or on a tall screen it has two lines (the status, then
- * the actions); on a narrow short phone one compact row, with a height budget at 320×568 of one 44px row plus one
- * 16px line, at most 88px with the padding; the rest opens on demand (the status toggle).
+ * The voice card (D-133, D-136, D-147): what the floating voice button grows into while Voice Agent is on. VoiceFloat
+ * places it at the viewport's bottom-right corner, over the screen (screens keep scroll room for it). From 600px it
+ * has two lines (the status, then the actions), about 128px; on every phone one compact row, with a height budget of
+ * one 44px row plus one 16px line, at most 88px with the padding; the rest opens on demand (the status toggle).
  */
 .card {
   display: flex;
@@ -17,6 +16,9 @@
   box-shadow: var(--shadow-raised);
   color: var(--color-text-primary);
   min-width: 0;
+  /* It grows from the corner it shares with the mini button (opened by a tap, or by itself after a rest, R7). */
+  transform-origin: bottom right;
+  animation: voice-card-grow var(--motion-base) var(--motion-ease);
 }
 /* Phones below 400px: a slimmer inset, so the closed row keeps the old dock's width (one row, one line, <= 88px). */
 @media (max-width: 399px) {
@@ -152,10 +154,23 @@
 .stop {
   min-width: var(--touch-target-min);
 }
-/* The compact row under 360px: Use screen and Resume voice keep their label without the icon, so the status fits beside them (as Hold to talk there). */
-@media (max-width: 359px) {
-  .rowCompact .rowAction > svg {
-    display: none;
+/*
+ * The compact row under 480px: the primary action (Pause, Resume voice, Hold to talk) is its icon alone, so the
+ * whole status ("Listening", "Hold to talk", Marathi included), Stop voice and Minimize fit beside it; the label is
+ * hidden visually, never removed (it is the button's name). A labelled action needs about 440px of phone width.
+ */
+@media (max-width: 479px) {
+  .rowCompact .rowAction {
+    min-width: var(--touch-target-min);
+    padding: 0;
+  }
+  .rowCompact .rowAction > span {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 }
 /* The compact row: Stop voice is the square icon alone (its name stays for screen readers), as the header's demo trigger (D-066). */
@@ -255,4 +270,21 @@
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
+}
+
+/* Keyframes live in the module that uses them (CSS Modules scope animation names per file). */
+@keyframes voice-card-grow {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    animation: none;
+  }
 }

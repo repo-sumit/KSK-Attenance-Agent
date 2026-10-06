@@ -20,7 +20,7 @@
   color: var(--color-text-primary);
   text-align: left;
 }
-.h56 { min-height: 56px; }
+.h56 { min-height: var(--row-min-height-compact); }
 .h64 { min-height: var(--row-min-height); }
 .h72 { min-height: 72px; }
 .interactive {
@@ -31,6 +31,18 @@
 }
 .interactive:focus-visible {
   outline-offset: -2px;
+}
+/* A button row that can't be pressed right now (another row is working): greyed, no pressed state. */
+.row:disabled {
+  cursor: default;
+  color: var(--color-text-disabled);
+}
+.row:disabled:active {
+  background: transparent;
+}
+.row:disabled .subtitle,
+.row:disabled .chevron {
+  color: inherit;
 }
 .text {
   display: flex;

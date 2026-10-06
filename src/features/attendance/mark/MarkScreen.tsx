@@ -4,6 +4,7 @@ import { useMemo } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Icon } from '@/components/ui/icons/Icon';
 import { InlineNote } from '@/components/ui/InlineNote';
+import { Latin } from '@/components/ui/Latin';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ScreenLayout } from '@/components/shell/ScreenLayout';
 import { AppHeader } from '@/features/shell/AppHeader';
@@ -15,6 +16,7 @@ import { useSession } from '@/hooks/session';
 import { useVoiceFocus } from '@/hooks/voice';
 import { addDays, toLocalDate } from '@/lib/time';
 import { batchTitle, closingSoon, statusNames } from '../../common/labels';
+import { latinText } from '../../common/LatinText';
 import { useSessionLabel } from '../useSessionLabel';
 import { RosterSummary, type RosterContext } from './RosterSummary';
 import { StudentRow, type RowLabels } from './StudentRow';
@@ -34,11 +36,10 @@ export function MarkScreen() {
   const m = ctx.journey.marking;
 
   const labels = useMemo<RowLabels>(() => {
-    // Split "Father: {name}" around the name, so the name alone is set as Latin master data.
-    const [before = '', after = ''] = t('roster.father', { name: '\u0000' }).split('\u0000');
     return {
       status: statusNames(t),
-      father: [before, after],
+      // "Father: {name}" with the name alone set as Latin master data.
+      father: (name) => latinText(t, 'roster.father', { name }, ['name']),
       presentFor: t('roster.presentFor'),
       firstHalf: t('status.firstHalf'),
       secondHalf: t('status.secondHalf'),
@@ -60,7 +61,7 @@ export function MarkScreen() {
     const batch = ctx.data.batches.find((b) => b.id === parseSessionKey(key)?.batchId);
     const trade = ctx.data.trades.find((x) => x.id === batch?.tradeId);
     return (
-      <ScreenLayout area={root.area} width="reading" header={<AppHeader back="back" title={trade?.name ?? t('common.loading')} subtitle={batch ? batchTitle(t, batch) : undefined} backHref={root.href} />}>
+      <ScreenLayout area={root.area} width="reading" header={<AppHeader back="back" title={trade ? <Latin>{trade.name}</Latin> : t('common.loading')} subtitle={batch ? batchTitle(t, batch) : undefined} backHref={root.href} />}>
         <Skeleton variant="rows" count={6} label={t('common.loading')} />
       </ScreenLayout>
     );
@@ -101,7 +102,7 @@ export function MarkScreen() {
       surface="raised"
       padding="none"
       footerLayout="row"
-      header={<AppHeader back="back" title={card.trade.name} subtitle={batchTitle(t, card.batch)} backHref={root.href} />}
+      header={<AppHeader back="back" title={<Latin>{card.trade.name}</Latin>} subtitle={batchTitle(t, card.batch)} backHref={root.href} />}
       top={
         <RosterSummary
           context={context}

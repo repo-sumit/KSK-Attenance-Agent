@@ -8,7 +8,7 @@ import { ScreenLayout } from '@/components/shell/ScreenLayout';
 import { useT } from '@/hooks/i18n';
 import { useServices } from '@/hooks/services';
 import { routes } from '@/lib/routes';
-import { LoginAssistPicker, useAssistAccountValue } from './LoginAssistPicker';
+import { LoginAssistList, useAssistAccountValue } from './LoginAssistList';
 import { useLoginFlow } from './LoginFlow';
 import styles from './Login.module.css';
 
@@ -25,20 +25,24 @@ export function InstituteCodeScreen() {
     router.prefetch(routes.loginTrainer);
   }, [router]);
   const params = useSearchParams();
-  const { auth, configuration } = useServices();
+  const { auth, configuration, loginAssist } = useServices();
   const flow = useLoginFlow();
   const picked = useAssistAccountValue('instituteCode');
   // Back from a later step: the account picked in this attempt is still in the field.
   const [code, setCode] = useState(params.get('code') ?? picked.value ?? '');
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  /** A demo account is being looked up: Continue waits, so one lookup runs at a time. */
+  const [assistBusy, setAssistBusy] = useState(false);
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!code.trim() || busy) return;
+    if (!code.trim() || busy || assistBusy) return;
     setBusy(true);
-    const result = await auth.lookupInstitute(code);
+    // A lookup that throws (the server unreachable, nothing cached) is a failure with a message, as on the list.
+    const result = await auth.lookupInstitute(code).catch(() => null);
     setBusy(false);
+    if (!result) return setError(t('login.lookupFailed'));
     if (!result.ok) {
       setError(result.error === 'invalid_format' ? t('login.codeInvalid') : t('login.codeNotFound', { code }));
       return;
@@ -53,8 +57,10 @@ export function InstituteCodeScreen() {
       surface="default"
       banner={false}
       padding="none"
+      // Demo builds: the Demo accounts list scrolls under Continue, so the footer gets its divider (U17).
+      footerDivider={Boolean(loginAssist)}
       footer={
-        <Button type="submit" form={FORM_ID} fullWidth disabled={!code.trim()} loading={busy}>
+        <Button type="submit" form={FORM_ID} fullWidth disabled={!code.trim() || assistBusy} loading={busy}>
           {busy ? t('login.checkingInstitute') : t('common.continue')}
         </Button>
       }
@@ -92,13 +98,14 @@ export function InstituteCodeScreen() {
             latin
             error={error}
           />
-          <LoginAssistPicker
-            field="instituteCode"
-            inputId={INPUT_ID}
+          <LoginAssistList
+            disabled={busy}
             onFill={(v) => {
               setCode(v);
               setError(undefined);
             }}
+            onError={setError}
+            onBusyChange={setAssistBusy}
           />
         </form>
       </div>

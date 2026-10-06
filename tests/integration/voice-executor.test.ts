@@ -87,6 +87,13 @@ async function voiceSession(
 
 type Student = { id: string; roll: number; name: string; call_as: string };
 const cur = (r: ToolResult) => (r.current as Student | undefined) ?? null;
+/** The trainer's own attendance marked first (after its check), for kickoff tests that are not about own attendance first (D-152). */
+async function markSelf(s: Awaited<ReturnType<typeof voiceSession>>) {
+  const { verification, staffAttendance } = s.env.app.services;
+  const loc = await verification.checkLocation(s.ctx, { kind: 'self' });
+  await verification.grant(s.ctx, { kind: 'self' }, loc.ok ? loc.value : undefined);
+  expect((await staffAttendance.markSelf(s.ctx)).ok).toBe(true);
+}
 const NO_CHECK: ConfigLayer = { verification: { geoMode: 'off', face: false } };
 
 /** Electrician, Shift 1 Unit 2: the prototype roster (31 students; Aditi Joshi is roll 2, Rahul Kumar roll 21). */
@@ -230,6 +237,20 @@ describe('voice executor: Maharashtra open mapping, fence + face, by exception',
     expect(called).not.toContain(6);
     expect(called).not.toContain(13);
     expect(r).toMatchObject({ step: 'REVIEW', counts: { PRESENT: 29, OJT: 2, UNMARKED: 0 } });
+  });
+
+  it('own attendance first refused at the save (its record gone meanwhile, D-152): SELF_FIRST, never "try again"', async () => {
+    const s = await voiceSession('TR-10432', NO_CHECK);
+    const { key } = await openEleS1U2(s);
+    await s.call('set_student_status', { student: 'Aditi', status: 'absent' });
+    const ask = await s.call('submit_attendance');
+    s.speak();
+    vi.spyOn(s.env.app.services.attendance, 'submit').mockResolvedValueOnce({ ok: false, error: 'self_first' });
+    const r = await s.call('submit_attendance', { confirm_token: ask.confirm_token });
+    expect(r).toMatchObject({ ok: false, error: 'SELF_FIRST' });
+    expect(r.instruction).toMatch(/must be marked before any student attendance.+call mark_my_attendance/);
+    expect(r.instruction).not.toMatch(/try again/);
+    expect(s.env.app.services.drafts.get(key)!.marks['ele-s1u2-r02']).toEqual({ status: 'absent' });
   });
 
   it('time fence: the window closes mid-marking → WINDOW_CLOSED with the closing time, the draft survives', async () => {
@@ -538,6 +559,19 @@ describe('voice executor: screens and verification events', () => {
     expect(s.ex.flow().step).toBe('VERIFY');
   });
 
+  it('checking(): the batch whose gateway voice follows, from select_batch until its list opens (D-148)', async () => {
+    const s = await voiceSession();
+    expect(s.ex.checking()).toEqual([]);
+    await s.call('select_trade', { trade: 'Electrician' });
+    await s.call('select_batch', { batch: 'shift 1 unit 2' });
+    const key = s.ex.flow().sessionKey ?? '';
+    expect(s.ex.checking()).toEqual([`session:${key}`]);
+    await verify(s.env.app, s.ctx, key);
+    await s.ex.onVerification({ type: 'granted', purpose: `session:${key}` });
+    expect(s.ex.flow().step).not.toBe('VERIFY');
+    expect(s.ex.checking()).toEqual([]);
+  });
+
   it('face enrolment first: the gateway still opens and the trainer is asked to register on screen', async () => {
     const s = await voiceSession('TR-10432', {}, (ctx) => ({ ...ctx, journey: { ...ctx.journey, faceEnrolmentRequired: true } }));
     await s.call('select_trade', { trade: 'Electrician' });
@@ -551,7 +585,8 @@ describe('voice executor: screens and verification events', () => {
 
   it('kickoff and refresh texts come from the flow', async () => {
     const s = await voiceSession();
-    expect(await s.ex.kickoff('start', 'English')).toMatch(/^\[APP\] Session started\. Greet the trainer by first name in one short line in English \("Good morning, <first name>\."\), then ask which trade/);
+    await markSelf(s);
+    expect(await s.ex.kickoff('start', 'English')).toMatch(/^\[APP\] Session started\. The trainer sees 5 trades on screen; .* Say exactly: "Hi Rajesh, good morning\." Then: Say in one short line, in English: "Right now only /);
     expect(await s.ex.kickoff('reconnect', 'English')).toBe('[APP] Reconnected. Call get_status and continue from the current student.');
     expect(await s.ex.refresh(null)).toMatch(/^\[APP\] The connection was refreshed; trust these facts over your memory\. We are choosing the trade\./);
   });
@@ -836,7 +871,7 @@ describe('voice executor: one clear yes everywhere (Task 23 Part A)', () => {
     await oneYesSubmits(s, codeIn(told.at(-1)!));
   });
 
-  it('A1 while paused (Use screen): the last tap moves the flow only; no code, no review pushed; get_status asks on Resume', async () => {
+  it('A1 while paused (Pause): the last tap moves the flow only; no code, no review pushed; get_status asks on Resume', async () => {
     const s = await voiceSession('TR-10432', BLANK_ROLL_CALL);
     const { opened, key } = await openEleS1U2(s);
     let r = opened;
@@ -1056,7 +1091,7 @@ describe('voice executor: follow-ups (Task 23 Part C)', () => {
     expect(await s.ex.onScreen({ kind: 'mark', sessionKey: submitted })).toBe(locked);
     expect(await s.ex.onScreen({ kind: 'record', sessionKey: submitted })).toBe(locked);
 
-    // the record screen's Yesterday switch is only browsing: nothing is said and the open batch stays
+    // another day's record (a typed URL) is only browsing: nothing is said and the open batch stays
     const { key: open } = await openEleS1U2(s);
     const yesterday = submitted.replace(TODAY, addDays(TODAY, -1));
     expect((await s.env.app.services.attendance.findCard(s.ctx, yesterday))?.status).toBe('submitted');
@@ -1494,7 +1529,7 @@ describe('voice executor: only what can be marked now (D-134)', () => {
   it('kickoff with the only open batch opens it itself: VERIFY, a navigate event, and the open text after the greeting', async () => {
     const s = await voiceSession('TR-10518', { mapping: { model: 'batch' } });
     const text = await s.ex.kickoff('start', 'English');
-    expect(text).toMatch(/^\[APP\] Session started\. Only Shift 1, Unit 2, Electrician can be marked now, so the app opened it: do not call select_batch for it\. Greet the trainer by first name in one short line in English \("Good morning, <first name>\."\), then: Before the student list/);
+    expect(text).toMatch(/^\[APP\] Session started\. Only Shift 1, Unit 2, Electrician can be marked now, so the app opened it: do not call select_batch for it\. Say exactly: "Hi Sunita, good morning\." Then: Before the student list/);
     expect(text).not.toMatch(/Shift 2/);
     expect(s.ex.flow()).toMatchObject({ step: 'VERIFY', sessionKey: keyOf('ele-s1u2') });
     expect(s.events).toContainEqual(expect.objectContaining({ type: 'navigate', href: expect.stringMatching(/^\/attendance\/open\?s=ele-s1u2\./) }));
@@ -1504,17 +1539,17 @@ describe('voice executor: only what can be marked now (D-134)', () => {
     const s = await voiceSession('TR-10518', { mapping: { model: 'batch' } });
     await verify(s.env.app, s.ctx, keyOf('ele-s1u2'));
     const text = await s.ex.kickoff('start', 'English');
-    expect(text).toMatch(/^\[APP\] Session started\. Only Shift 1, Unit 2, Electrician can be marked now, so the app opened it: do not call select_batch for it\. .*, then: In the trainer's language, with numbers said the way that language says them, in one short line, say Shift 1, Unit 2, Electrician, 31 students, everyone present, and ask who is absent/);
+    expect(text).toMatch(/^\[APP\] Session started\. Only Shift 1, Unit 2, Electrician can be marked now, so the app opened it: do not call select_batch for it\. Say exactly: "Hi Sunita, good morning\." Then: In the trainer's language, with numbers said the way that language says them, in one short line, say Shift 1, Unit 2, Electrician, 31 students, everyone present, and ask who is absent/);
     expect(s.ex.flow()).toMatchObject({ step: 'ROLL_CALL', rollCall: false, sessionKey: keyOf('ele-s1u2') });
     expect(s.nav.at(-1)).toMatch(/^\/attendance\/mark\?s=ele-s1u2\./);
   });
 
-  it('voice started on My attendance, Reports or the staff screen opens nothing: it offers own attendance or reads the open batch', async () => {
+  it('voice started on My attendance, Reports or the staff screen opens nothing: it asks for own attendance first or reads the open batch', async () => {
     // Rajesh Patil: only Shift 1 Unit 1 is open at 10:15, and his own attendance is not marked yet
     const self = await voiceSession('TR-10432', { mapping: { model: 'batch' } });
     await self.ex.onScreen({ kind: 'self' });
     const offer = await self.ex.kickoff('start', 'English');
-    expect(offer).toMatch(/^\[APP\] Session started\. The trainer is on My attendance, and their own attendance is not marked today\. Greet the trainer .*call mark_my_attendance\.$/);
+    expect(offer).toMatch(/^\[APP\] Session started\. The trainer's own attendance is not marked today\. Say exactly: "Hi Rajesh, good morning\." Then say in one short line, in English: "Please mark your attendance first\. Shall I start\?" Then wait\. On yes, call mark_my_attendance\. /);
     expect(self.ex.flow().step).not.toBe('VERIFY');
     expect(self.nav).toEqual([]); // the screen the trainer chose stays
     // Sunita Jadhav marked her own attendance already: the open batch is read, still not opened
@@ -1522,7 +1557,7 @@ describe('voice executor: only what can be marked now (D-134)', () => {
     expect(await marked.env.app.services.staffAttendance.myRecord(marked.ctx)).toBeDefined();
     await marked.ex.onScreen({ kind: 'self' });
     const read = await marked.ex.kickoff('start', 'English');
-    expect(read).toMatch(/^\[APP\] Session started\. Greet the trainer .*Only Shift 1, Unit 2, Electrician can be marked now\. Say that in one short line and ask whether to open it; on yes, call select_batch with id ele-s1u2\./);
+    expect(read).toMatch(/^\[APP\] Session started\. Say exactly: "Hi Sunita, good morning\." Then: Only Shift 1, Unit 2, Electrician can be marked now\. Say that in one short line and ask whether to open it; on yes, call select_batch with id ele-s1u2\./);
     expect(marked.nav).toEqual([]);
     for (const screen of ['reports', 'staff_attendance', undefined] as const) {
       const away = await voiceSession('TR-10518', { mapping: { model: 'batch' } });
@@ -1601,7 +1636,7 @@ describe('voice executor: only what can be marked now (D-134)', () => {
   it('kickoff with two open periods and later ones names only the open two, with their ids', async () => {
     const s = await voiceSession('TR-11024', MEERA_PERIODS);
     const text = await s.ex.kickoff('start', 'English');
-    expect(text).toMatch(/^\[APP\] Session started\. Greet the trainer by first name in one short line in English \("Good morning, <first name>\."\), then: Read only the periods open now/);
+    expect(text).toMatch(/^\[APP\] Session started\. Say exactly: "Hi Meera, good morning\." Then: Read only the periods open now/);
     expect(text).toContain('Shift 1, Unit 1, Electrician, Period 3 (theory); Shift 1, Unit 1, COPA, Period 3 (theory).');
     expect(text).toContain(`Their ids for select_batch: Shift 1, Unit 1, Electrician, Period 3 (theory): ${keyOf('ele-s1u1', 'p3.es')}; Shift 1, Unit 1, COPA, Period 3 (theory): ${keyOf('copa-s1u1', 'p3.es')}.`);
     expect(text).not.toMatch(/Shift 2|Fitter|Welder|2:00|5:00|closed/);
@@ -1613,18 +1648,23 @@ describe('voice executor: only what can be marked now (D-134)', () => {
     const s = await voiceSession('TR-11024', MEERA_PERIODS);
     s.env.clock.set(instantAt(TODAY, '11:30'));
     expect(await s.ex.kickoff('start', 'English')).toBe(
-      '[APP] Session started. Nothing can be marked right now: the next period opens at 2:00 pm. Greet the trainer by first name in one short line in English ("Good morning, <first name>."), say that in one line, then ask "What do you need?". Then wait.',
+      '[APP] Session started. Nothing can be marked right now: the next period opens at 2:00 pm. Say exactly: "Hi Meera, good morning." Then: Say that in one line and ask "How can I help?". Then wait.',
     );
     s.env.clock.set(instantAt(TODAY, '18:30'));
-    expect(await s.ex.kickoff('start', 'English')).toMatch(/^\[APP\] Session started\. Nothing can be marked right now: today's attendance windows are closed\. Greet the trainer by first name in one short line in English \("Good evening, <first name>\."\)/);
+    expect(await s.ex.kickoff('start', 'English')).toMatch(/^\[APP\] Session started\. Nothing can be marked right now: today's attendance windows are closed\. Say exactly: "Hi Meera, good evening\."/);
     expect(s.ex.flow().step).toBe('SELECT_BATCH');
   });
 
   it('kickoff with a trade step reads only the trades with a batch open now; voice started on a batch list or screen is unchanged', async () => {
     const s = await voiceSession();
-    // Welder and COPA have only a submitted batch and later ones at 10:15: not read
+    await markSelf(s);
+    // Welder and COPA have only a submitted batch and later ones at 10:15: offered not, but their reason is known (D-156)
     expect(await s.ex.kickoff('start', 'English')).toBe(
-      '[APP] Session started. Greet the trainer by first name in one short line in English ("Good morning, <first name>."), then ask which trade, reading the trade names: Electrician, Fitter, Mechanic Diesel. No tool call is needed before the trainer answers. When the trainer names one, call select_trade.',
+      '[APP] Session started. The trainer sees 5 trades on screen; right now only Electrician, Fitter and Mechanic Diesel have a batch open and not yet marked. ' +
+        'The others: Welder and COPA: every batch open so far is submitted, and the next opens at 2:00 pm. ' +
+        'Say exactly: "Hi Rajesh, good morning." Then: Say in one short line, in English: "Right now only Electrician, Fitter and Mechanic Diesel have batches open and not yet marked. Which one?" ' +
+        'No tool call is needed before the trainer answers. When the trainer names one, call select_trade. ' +
+        'Do not name the other trades unless the trainer asks about them; then give their reason from these facts in one short line and ask again.',
     );
     await s.call('select_trade', { trade: 'Electrician' });
     expect(await s.ex.kickoff('start', 'English')).toBe('[APP] Session started again. Call get_status and continue from where we were.');
@@ -1636,13 +1676,15 @@ describe('voice executor: only what can be marked now (D-134)', () => {
 
   it('kickoff with a trade step and nothing open in any trade: why, then what the trainer needs (D-142)', async () => {
     const s = await voiceSession();
+    await markSelf(s);
     s.env.clock.set(instantAt(TODAY, '20:30')); // after both shifts' windows
     expect(await s.ex.kickoff('start', 'English')).toBe(
-      '[APP] Session started. Nothing can be marked right now: today\'s attendance windows are closed. Greet the trainer by first name in one short line in English ("Good evening, <first name>."), say that in one line, then ask "What do you need?". Then wait.',
+      '[APP] Session started. Nothing can be marked right now: today\'s attendance windows are closed. Say exactly: "Hi Rajesh, good evening." Then: Say that in one line and ask "How can I help?". Then wait.',
     );
     expect(s.ex.flow().step).toBe('SELECT_TRADE');
     const t = await voiceSession('TR-10432', SHIFT_1_SHUT);
-    expect(await t.ex.kickoff('start', 'English')).toMatch(/^\[APP\] Session started\. Nothing can be marked right now: the next batch opens at 2:00 pm\. Greet the trainer/);
+    await markSelf(t);
+    expect(await t.ex.kickoff('start', 'English')).toMatch(/^\[APP\] Session started\. Nothing can be marked right now: the next batch opens at 2:00 pm\. Say exactly: "Hi Rajesh, good morning\."/);
   });
 
   it('get_status and select_trade at the batch list give the open batches only', async () => {
@@ -1806,8 +1848,8 @@ describe('voice executor: only what can be marked now (D-134)', () => {
     const info = vi.spyOn(console, 'info').mockImplementation(() => {});
     try {
       const text = await s.ex.kickoff('start', 'English');
-      expect(text).toMatch(/^\[APP\] Session started\. Greet the trainer .*Only Shift 1, Unit 2, Electrician can be marked now\. .*call select_batch with id ele-s1u2\./);
-      expect(info).toHaveBeenCalledWith(`[voice] kickoff auto-open failed for ${keyOf('ele-s1u2')}: TypeError`);
+      expect(text).toMatch(/^\[APP\] Session started\. Say exactly: "Hi Sunita, good morning\." Then: Only Shift 1, Unit 2, Electrician can be marked now\. .*call select_batch with id ele-s1u2\./);
+      expect(info).toHaveBeenCalledWith(`[voice] auto-open failed for ${keyOf('ele-s1u2')}: TypeError`);
       expect(info.mock.calls.flat().join(' ')).not.toMatch(/Sunita|Patil|broke/);
     } finally {
       info.mockRestore();

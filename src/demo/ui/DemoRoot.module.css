@@ -32,6 +32,15 @@
 .trigger[aria-expanded='true'] {
   background: var(--color-status-warning-subtle);
 }
+/* The signed-in first name ("Demo · Sunita"): from 600px only, so phone headers keep their widths (D-066, D-076). */
+.triggerName {
+  display: none;
+}
+@media (min-width: 600px) {
+  .triggerName {
+    display: inline;
+  }
+}
 .floating {
   position: fixed;
   top: calc(env(safe-area-inset-top) + var(--space-12));
@@ -66,7 +75,8 @@
     width: var(--control-height-sm);
     padding: 0;
   }
-  header[data-nav-tabs='3'] .inHeader .triggerText {
+  header[data-nav-tabs='3'] .inHeader .triggerText,
+  header[data-nav-tabs='3'] .inHeader .triggerName {
     display: none;
   }
 }
@@ -96,14 +106,16 @@
 /*
  * Reserves while floating (html[data-demo-float] outranks the :root
  * defaults in tokens.css whatever the stylesheet order). Phones: headerless
- * screens start below the pill and a first-row banner ends before it.
+ * screens scroll below the pill (the band is above their scroller) and a
+ * first-row banner ends before it.
  * Tablets and desktops: the last row can always scroll clear of the
  * bottom-right pill.
  */
 @media (max-width: 599px) {
   :global(html[data-demo-float]) {
     --demo-reserve-inline: 84px;
-    --demo-reserve-block: 40px;
+    /* The pill's offset (safe area + 12px) and 36px height: a headerless screen scrolls below it, never under it. */
+    --demo-reserve-block: calc(env(safe-area-inset-top) + 48px);
   }
 }
 @media (max-width: 359px) {

@@ -2,10 +2,12 @@
  * Live-model harness (Task 20, Step 3): the REAL Gemini Live model, the real executor and the mock container. The
  * trainer is a script of typed turns; verification is granted through the service where the screen would do it.
  * Run with `npm run test:voice-live` (GEMINI_API_KEY from .env.development); without a key every test is skipped.
- * Costs quota: a run is twenty-eight conversations. VOICE_LIVE_TRANSCRIPT=1 prints what the model said (mock names only).
+ * Costs quota: a run is forty conversations. VOICE_LIVE_TRANSCRIPT=1 prints what the model said (mock names only).
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { compileVoicePlan } from '@/domain/voice/plan';
+import { voiceFor } from '@/domain/voice/voices';
+import { mergeConfigLayer } from '@/config/resolve';
 import type { ConfigLayer, Language } from '@/config/types';
 import { instantAt } from '@/lib/time';
 import { createExecutor, type VoiceExecutor } from '@/services/voice/executor';
@@ -26,13 +28,24 @@ afterEach(() => {
   for (const d of drivers.splice(0)) d.close();
 });
 
+/** Own attendance first as the rule (D-152, Maharashtra): the helpers run with it off unless a scenario is about it. */
+const RULE_ON: ConfigLayer = { staff: { selfBeforeStudents: true } };
+
 /**
  * A signed-in trainer with voice on, the real executor, and a live connection with the production prompt and tools.
  * `screen`: the language the app is shown in (voice opens in it, as VoiceProvider passes the screen's language).
+ * `selfMarked`: the trainer's own attendance is marked before voice starts (Rajesh is not, in the seed), for scenarios
+ * that are not about own attendance first (D-152); its pass is not reused for a batch, so the batch check still runs.
  */
-async function conversation(layer: ConfigLayer = {}, trainerId = 'TR-10432', screen: Language = 'en') {
-  const env = appSetup({ voice: { enabled: true }, ...layer });
+async function conversation(layer: ConfigLayer = {}, trainerId = 'TR-10432', screen: Language = 'en', { selfMarked = false } = {}) {
+  const noReuse: ConfigLayer = selfMarked ? { verification: { selfPassReuseMinutes: 0 } } : {};
+  const env = appSetup(mergeConfigLayer<ConfigLayer>(mergeConfigLayer<ConfigLayer>({ voice: { enabled: true } }, noReuse), layer));
   const ctx = await signIn(env.app, trainerId);
+  if (selfMarked) {
+    const loc = await env.app.services.verification.checkLocation(ctx, { kind: 'self' });
+    await env.app.services.verification.grant(ctx, { kind: 'self' }, loc.ok ? loc.value : undefined);
+    expect((await env.app.services.staffAttendance.markSelf(ctx)).ok, 'own attendance marked first').toBe(true);
+  }
   const plan = compileVoicePlan(ctx, screen)!;
   const holder: { driver?: LiveDriver } = {}; // the executor reads the trainer's turn count live, from the driver built next
   let generation = 1; // a goAway swap's new connection (newConnection) bumps it, as the session's link does
@@ -50,7 +63,7 @@ async function conversation(layer: ConfigLayer = {}, trainerId = 'TR-10432', scr
     entropy: () => crypto.getRandomValues(new Uint32Array(1))[0] / 2 ** 32,
   });
   const who = { trainerFirstName: firstName(ctx.user.name), instituteName: ctx.institute.shortName, todayText: TODAY_TEXT.format(env.clock.now()) };
-  const liveSetup: LiveSetup = { model: MODEL, systemInstruction: buildSystemPrompt(plan, who), tools: buildTools(plan), voiceName: ctx.journey.voice.voiceName };
+  const liveSetup: LiveSetup = { model: MODEL, systemInstruction: buildSystemPrompt(plan, who), tools: buildTools(plan), voiceName: voiceFor(ctx.journey.voice, plan.openingLanguage) }; // as VoiceService chooses it (D-155)
   const driver = await LiveDriver.open(apiKey, liveSetup, executor);
   holder.driver = driver;
   drivers.push(driver);
@@ -73,8 +86,20 @@ async function conversation(layer: ConfigLayer = {}, trainerId = 'TR-10432', scr
   /** The kickoff text (it may open the only open batch itself), then the model's first turn on it. */
   const kickoff = () => executor.kickoff('start', SPEECH_LANGUAGE[screen]);
   const sessionStart = async () => say(await kickoff(), false);
-  /** The trainer's face and location pass, as the verification screen would grant it, then the executor's [APP] text. */
+  /**
+   * The trainer's check as the verification screen runs it: the face camera opens (its text goes once the agent's check
+   * line is over, D-148, as here after the turn) and the agent stays quiet; the face matches and the camera closes;
+   * then the pass, as the screen would grant it, and the executor's [APP] text.
+   */
   const verifyPass = async () => {
+    const purpose = `session:${key()}`;
+    const camera = await executor.onVerification({ type: 'camera', purpose, on: true });
+    expect(camera, 'the camera text').toMatch(/^\[APP\] The face camera is open\./);
+    const quiet = await say(camera!, false, 8_000); // "say nothing": the model may give no turn at all
+    expect(quiet.tools, 'no tool while the camera is open').toEqual([]);
+    expect(quiet.said.trim().split(/\s+/).filter(Boolean).length, 'quiet (a few words at most) while the camera is open').toBeLessThanOrEqual(6);
+    expect(await executor.onVerification({ type: 'face', purpose, result: 'match' }), 'a match says nothing').toBeNull();
+    expect(await executor.onVerification({ type: 'camera', purpose, on: false }), 'the camera closing says nothing').toBeNull();
     const target = { kind: 'session', key: key() } as const;
     const loc = await env.app.services.verification.checkLocation(ctx, target);
     await env.app.services.verification.grant(ctx, target, loc.ok ? loc.value : undefined);
@@ -87,8 +112,9 @@ async function conversation(layer: ConfigLayer = {}, trainerId = 'TR-10432', scr
     await sessionStart();
     await say('Electrician');
     expect(flow().step, 'after the trade').toBe('SELECT_BATCH');
-    await say('shift 1 unit 2');
+    const line = await say('shift 1 unit 2');
     expect(flow().step, 'after the batch').toBe('VERIFY');
+    expect(line.said, 'the check line names the location or the camera (D-148)').toMatch(CHECK_LINE);
     await verifyPass();
     expect(flow().step, 'after the pass').toBe('ROLL_CALL');
   };
@@ -109,6 +135,9 @@ async function conversation(layer: ConfigLayer = {}, trainerId = 'TR-10432', scr
   return { env, ctx, executor, say, report, flow, key, kickoff, verifyPass, openBatch, draft, submission, toolsOf, navigated, shown, turns: driver.turns, newConnection, lateSpeech };
 }
 
+/** The agent's one line as a check starts (D-148): it names the location or the camera, in English or Marathi. */
+const CHECK_LINE = /camera|location|कॅमेर|कॅमर|स्थान|लोकेशन|ठिकाण|जागा/i;
+
 const absents = (marks: Readonly<Record<string, { status: string | null }>>) => Object.entries(marks).filter(([, m]) => m.status === 'absent').map(([id]) => id);
 
 /** Hindi the model must never answer with (Task 19): romanised, as whole lower-case words or word runs. */
@@ -124,7 +153,7 @@ const hindiIn = (said: string, tokens: readonly string[]): string[] => {
 
 describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
   it('(a) by exception: one absent, a check question, then one confirmed submission', async () => {
-    const c = await conversation();
+    const c = await conversation({}, 'TR-10432', 'en', { selfMarked: true });
     try {
       await c.openBatch();
       await c.say('sab present, sirf Aditi absent');
@@ -156,7 +185,7 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
   };
 
   it('(aa) English screen, a Hinglish trainer: every reply is English, never Hindi; one submission (Task 19)', async () => {
-    const c = await conversation();
+    const c = await conversation({}, 'TR-10432', 'en', { selfMarked: true });
     try {
       const replies = await hinglishFlow(c);
       for (const said of replies) {
@@ -169,7 +198,7 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
   });
 
   it('(ab) Marathi screen, a Hinglish trainer: Marathi (or English) replies, never Hindi-only words; one submission (Task 19)', async () => {
-    const c = await conversation({}, 'TR-10432', 'mr');
+    const c = await conversation({}, 'TR-10432', 'mr', { selfMarked: true });
     try {
       const replies = await hinglishFlow(c);
       for (const said of replies) expect(hindiIn(said, HINDI_ONLY), `no Hindi-only words in "${said}"`).toEqual([]);
@@ -179,7 +208,7 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
   });
 
   it('(b) roll call: three answers, then mark_remaining only after a confirmation', async () => {
-    const c = await conversation({ marking: { defaultStatus: 'blank' } });
+    const c = await conversation({ marking: { defaultStatus: 'blank' } }, 'TR-10432', 'en', { selfMarked: true });
     try {
       await c.openBatch();
       for (let i = 0; i < 3; i++) await c.say('present');
@@ -202,7 +231,7 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
   });
 
   it('(c) a misheard name: the model asks again instead of marking', async () => {
-    const c = await conversation();
+    const c = await conversation({}, 'TR-10432', 'en', { selfMarked: true });
     try {
       await c.openBatch();
       const turn = await c.say('sirf Quentin absent');
@@ -278,7 +307,7 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
   });
 
   it('(g) the last open batch of a trade submitted: the model offers another trade\'s open batch and "haan" opens it', async () => {
-    const c = await conversation({ verification: { geoMode: 'off', face: false } });
+    const c = await conversation({ verification: { geoMode: 'off', face: false } }, 'TR-10432', 'en', { selfMarked: true });
     const submitAndOffer = async (n: number) => {
       await c.say('koi absent nahi');
       for (let i = 0; i < 3 && c.toolsOf().filter((t) => t.name === 'submit_attendance' && t.ok).length < n; i++) await c.say('haan');
@@ -288,7 +317,7 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
     };
     try {
       const text = await c.kickoff();
-      expect(text, 'the kickoff reads only the trades with a batch open now').toContain('reading the trade names: Electrician, Fitter, Mechanic Diesel.');
+      expect(text, 'the kickoff offers only the trades with a batch open now').toContain('"Right now only Electrician, Fitter and Mechanic Diesel have batches open and not yet marked. Which one?"');
       const first = await c.say(text, false);
       expect(first.said, 'no trade without an open batch').not.toMatch(/welder|copa|वेल्डर/i);
       expect(first.tools.some((t) => t.name === 'get_trades'), 'no get_trades before the trainer answers (the kickoff named the trades)').toBe(false);
@@ -315,13 +344,13 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
   const GOODBYE = /good ?bye|\bbye\b|alvida|अलविदा|निरोप/i;
   const ended = (tools: readonly { name: string }[]) => tools.some((t) => t.name === 'end_voice_session');
 
-  it('(j) nothing can be marked at the start: the model says why in one line and asks what they need; voice stays open (D-142)', async () => {
+  it('(j) nothing can be marked at the start: the model says why in one line and asks "How can I help?"; voice stays open (D-142)', async () => {
     // Meera Kulkarni with periods at 11:30: period 3 has closed, the next period opens at 2:00 pm
     const c = await conversation({ mapping: { model: 'timetable' }, marking: { frequency: 'period' } }, 'TR-11024');
     try {
       c.env.clock.set(instantAt(TODAY, '11:30'));
       const text = await c.kickoff();
-      expect(text, 'the nothing-markable kickoff').toMatch(/^\[APP\] Session started\. Nothing can be marked right now: the next period opens at 2:00 pm\. .*then ask "What do you need\?"\. Then wait\.$/);
+      expect(text, 'the nothing-markable kickoff').toMatch(/^\[APP\] Session started\. Nothing can be marked right now: the next period opens at 2:00 pm\. Say exactly: "Hi Meera, good morning\." Then: Say that in one line and ask "How can I help\?"\. Then wait\.$/);
       const turn = await c.say(text, false);
       expect(ended(turn.tools), 'voice stays open (D-142)').toBe(false);
       expect(turn.tools.some((t) => t.name === 'select_batch'), 'nothing is opened').toBe(false);
@@ -370,7 +399,7 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
     const c = await conversation(...PRINCIPAL);
     try {
       const text = await c.kickoff();
-      const facts = /Today: (\d+) of (\d+) batches submitted, (\d+) staff not marked yet\./.exec(text);
+      const facts = /Today: (\d+) of (\d+) batches submitted, (\d+) staff not marked yet(?:, the principal included)?\./.exec(text);
       expect(facts, 'the kickoff carries today\'s numbers').not.toBeNull();
       const turn = await c.say(text, false);
       const [, submitted, total, staff] = facts!;
@@ -410,7 +439,7 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
 
   it('(l) an instructor asks who is at risk: get_at_risk, the lowest names with their figures, then the screen on yes (D-140)', async () => {
     // Rajesh Patil: Electrician Shift 1 Unit 1 and Shift 2 Unit 1; 6 students at risk, Tushar Hande lowest at 56%
-    const c = await conversation();
+    const c = await conversation({}, 'TR-10432', 'en', { selfMarked: true });
     try {
       await c.say(await c.kickoff(), false);
       const asked = await c.say('mere batches mein kaun kaun at risk hai?');
@@ -456,13 +485,13 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
       expect(asked.tools.some((t) => t.name === 'mark_my_attendance' && t.ok), 'mark_my_attendance opened the check').toBe(true);
       expect(c.navigated.at(-1)).toBe('/me/attendance');
       expect(await c.env.app.services.staffAttendance.myRecord(c.ctx), 'nothing is saved before the pass').toBeUndefined();
-      expect(asked.said, 'it asks the trainer to follow the screen').toMatch(/screen|स्क्रीन/i);
+      expect(asked.said, 'the check line names the location or the camera (D-148)').toMatch(CHECK_LINE);
       // the screen's check passes (simulated location and face), as VerificationFlow would grant it
       const target = { kind: 'self' } as const;
       const loc = await c.env.app.services.verification.checkLocation(c.ctx, target);
       await c.env.app.services.verification.grant(c.ctx, target, loc.ok ? loc.value : undefined);
       const text = await c.executor.onVerification({ type: 'granted', purpose: 'self' });
-      expect(text, 'the executor saves it and tells the model').toMatch(/^\[APP\] The check passed and the trainer's own attendance is marked present at /);
+      expect(text, 'the executor saves it, tells the model and leads on to the students').toMatch(/^\[APP\] The check passed and the trainer's own attendance is marked present at .+ Then, in the same turn: /);
       const done = await c.say(text!, false);
       expect(await c.env.app.services.staffAttendance.myRecord(c.ctx)).toMatchObject({ status: 'present', source: 'self' });
       expect(done.said, 'the model says it is marked').toMatch(/mark|हजेरी|लगा|लावली|present/i);
@@ -494,7 +523,7 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
     }
   });
 
-  it('(p) the principal resumes after Use screen: no student to continue from, no numbers unasked, the next request is answered', async () => {
+  it('(p) the principal resumes after Pause: no student to continue from, no numbers unasked, the next request is answered', async () => {
     const c = await conversation(...PRINCIPAL);
     try {
       const kickoff = await c.kickoff();
@@ -511,7 +540,7 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
       expect(notices.tools.some((t) => t.name === 'get_announcements' && t.ok), 'the next request is answered').toBe(true);
       expect(notices.said, 'the model speaks again after the resume').not.toBe('');
     } finally {
-      c.report('(p) the principal resumes after Use screen');
+      c.report('(p) the principal resumes after Pause');
     }
   });
 
@@ -579,11 +608,11 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
   const pctsIn = (text: string) => [...text.matchAll(/(\d+)%/g)].map((m) => Number(m[1]));
 
   it('(t) an instructor on Reports: Resume, Reconnect and a refresh say where they are, read no batch, and the next request is answered', async () => {
-    const c = await conversation();
+    const c = await conversation({}, 'TR-10432', 'en', { selfMarked: true });
     try {
       await c.say(await c.kickoff(), false);
       await c.executor.onScreen({ kind: 'other', screen: 'reports' }); // the trainer tapped Reports
-      await c.say(PAUSE_EVENT, false, 10_000); // Use screen: the model may stay quiet without a turn
+      await c.say(PAUSE_EVENT, false, 10_000); // Pause: the model may stay quiet without a turn
       const resume = c.executor.resumeText();
       expect(resume).toMatch(/^\[APP\] The trainer is back from the screen\. They are on the Reports screen;/);
       const back = await c.say(resume, false);
@@ -609,12 +638,12 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
     }
   });
 
-  it('(u) voice started on My attendance: it offers own attendance, opens no batch, and "haan" runs mark_my_attendance', async () => {
+  it('(u) voice started on My attendance: it asks for own attendance first, opens no batch, and "haan" runs mark_my_attendance', async () => {
     const c = await conversation({ mapping: { model: 'batch' } });
     try {
       await c.executor.onScreen({ kind: 'self' }); // voice started on My attendance
       const text = await c.kickoff();
-      expect(text).toMatch(/^\[APP\] Session started\. The trainer is on My attendance, and their own attendance is not marked today\./);
+      expect(text).toMatch(/^\[APP\] Session started\. The trainer's own attendance is not marked today\./);
       const first = await c.say(text, false);
       expect(first.tools.some((t) => t.name === 'select_batch' || t.name === 'mark_my_attendance'), 'nothing before the trainer answers').toBe(false);
       expect(first.said, 'it asks whether to mark it').toMatch(/\?/);
@@ -652,7 +681,7 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
   });
 
   it('(w) download the register: the sheet opens on Reports, the model says to tap Download; nothing downloads by itself', async () => {
-    const c = await conversation();
+    const c = await conversation({}, 'TR-10432', 'en', { selfMarked: true });
     try {
       await c.say(await c.kickoff(), false);
       const asked = await c.say('download the register of Electrician shift 1 unit 1');
@@ -670,7 +699,7 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
   });
 
   it('(x) an instructor asks how their batches are doing: get_reports_overview, figures from the result only', async () => {
-    const c = await conversation();
+    const c = await conversation({}, 'TR-10432', 'en', { selfMarked: true });
     try {
       await c.say(await c.kickoff(), false);
       const asked = await c.say('how are my batches doing?');
@@ -689,7 +718,7 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
 
   it('(y) an instructor asks about one student by name: get_student_report, the right percentage', async () => {
     // Tushar Hande (one of Rajesh Patil's Electrician batches): 56%, at risk
-    const c = await conversation();
+    const c = await conversation({}, 'TR-10432', 'en', { selfMarked: true });
     try {
       await c.say(await c.kickoff(), false);
       const asked = await c.say('Tushar Hande ki attendance kitni hai?');
@@ -715,6 +744,254 @@ describe.skipIf(!apiKey)('Voice Agent against the live model', () => {
       expect(await c.env.app.services.staffAttendance.myRecord(c.ctx)).toBeUndefined();
     } finally {
       c.report('(z) am I marked today');
+    }
+  });
+
+  /** "I can only help with ..." (the round-2 complaint): never said about trades. */
+  const ONLY_HELP = /only help|can only (help|assist)/i;
+  /** The grant the self screen would give, then the executor's text (with its lead-on). */
+  const selfPass = async (c: Awaited<ReturnType<typeof conversation>>) => {
+    const loc = await c.env.app.services.verification.checkLocation(c.ctx, { kind: 'self' });
+    await c.env.app.services.verification.grant(c.ctx, { kind: 'self' }, loc.ok ? loc.value : undefined);
+    return c.executor.onVerification({ type: 'granted', purpose: 'self' });
+  };
+
+  it('(ac) own attendance first: the greeting and the ask, the check, then the same turn names the open trades; the batch opens with no second check', async () => {
+    const c = await conversation(RULE_ON);
+    try {
+      const text = await c.kickoff();
+      expect(text).toMatch(/^\[APP\] Session started\. The trainer's own attendance is not marked today; it must be marked before any student attendance\. Say exactly: "Hi Rajesh, good morning\."/);
+      const first = await c.say(text, false);
+      expect(first.said, 'the app-filled greeting').toMatch(/hi,? rajesh,? good morning/i);
+      expect(first.said, 'it asks for own attendance first').toMatch(/attendance/i);
+      expect(first.said, 'a question').toMatch(/\?/);
+      expect(first.tools, 'nothing before the trainer answers').toEqual([]);
+      const yes = await c.say('yes');
+      expect(yes.tools.some((t) => t.name === 'mark_my_attendance' && t.ok), 'yes runs mark_my_attendance').toBe(true);
+      const passed = await selfPass(c);
+      expect(passed).toContain('Then, in the same turn: The trainer sees 5 trades on screen; right now only Electrician, Fitter and Mechanic Diesel');
+      const lead = await c.say(passed!, false);
+      expect(lead.said, 'it says own attendance is marked').toMatch(/mark|present/i);
+      expect(lead.said, 'and leads on to the open trades').toMatch(/electrician|fitter|mechanic/i);
+      expect(lead.said, 'with a question').toMatch(/\?/);
+      expect(lead.said).not.toMatch(ONLY_HELP);
+      await c.say('Electrician');
+      expect(c.flow().step, 'after the trade').toBe('SELECT_BATCH');
+      await c.say('shift 1 unit 2');
+      expect(c.flow().step, 'the self pass is reused: the list opens without a second check').toBe('ROLL_CALL');
+      expect(c.navigated.at(-1)).toMatch(/^\/attendance\/mark\?s=ele-s1u2\./);
+    } finally {
+      c.report('(ac) own attendance first, then the students');
+    }
+  });
+
+  it('(ad) a batch asked for before own attendance is refused with the reason; nothing opens', async () => {
+    const c = await conversation(RULE_ON);
+    try {
+      await c.say(await c.kickoff(), false);
+      const asked = await c.say('Open Electrician shift 1 unit 2');
+      // the model refuses from the kickoff's facts, or a selection tool answers SELF_FIRST: either way no batch opens.
+      // Live runs: about one in four goes straight on to the trainer's own check (mark_my_attendance only opens it;
+      // nothing is saved without the pass), which is where the rule sends them anyway.
+      const started = asked.tools.some((t) => t.name === 'mark_my_attendance' && t.ok);
+      expect(asked.tools.every((t) => t.error === 'SELF_FIRST' || t.name === 'mark_my_attendance'), 'only a SELF_FIRST refusal or the own check').toBe(true);
+      expect(asked.said, 'it says own attendance comes first').toMatch(/attendance/i);
+      expect(c.navigated.filter((href) => href !== '/me/attendance'), 'no batch screen opened').toEqual([]);
+      expect(c.flow().sessionKey).toBeNull();
+      if (!started) {
+        expect(asked.said, 'it asks again whether to start').toMatch(/\?/);
+        const yes = await c.say('ok, yes');
+        expect(yes.tools.some((t) => t.name === 'mark_my_attendance' && t.ok), 'the yes starts it').toBe(true);
+      }
+      expect(c.navigated, 'only My attendance opens').toEqual(['/me/attendance']);
+    } finally {
+      c.report('(ad) a batch before own attendance');
+    }
+  });
+
+  it('(ae) own attendance marked: one line offers the open trades; asked why only those, it gives the reason (never "I can only help with")', async () => {
+    const c = await conversation({}, 'TR-10432', 'en', { selfMarked: true });
+    try {
+      const first = await c.say(await c.kickoff(), false);
+      expect(first.said, 'the open trades are offered').toMatch(/electrician/i);
+      expect(first.said, 'as open and not yet marked').toMatch(/open|not yet marked|unmarked/i);
+      expect(first.said, 'a question').toMatch(/\?/);
+      expect(first.said).not.toMatch(ONLY_HELP);
+      expect(first.said, 'no other trade read out unasked').not.toMatch(/welder|copa/i);
+      const why = await c.say('Why only these? I can see five trades.');
+      expect(why.said, 'it names the other trades').toMatch(/welder|copa/i);
+      expect(why.said, 'with their reason').toMatch(/submitted|2(:00)? ?(pm|p\.m\.)|two|later|open/i);
+      expect(why.said).not.toMatch(ONLY_HELP);
+      expect(why.tools.some((t) => t.ok && t.name === 'select_trade'), 'nothing chosen for the trainer').toBe(false);
+    } finally {
+      c.report('(ae) the trade offer and the reason');
+    }
+  });
+
+  it('(af) Marathi screen: the Marathi greeting line and the Marathi own-attendance ask', async () => {
+    const c = await conversation(RULE_ON, 'TR-10432', 'mr');
+    try {
+      const text = await c.kickoff();
+      expect(text).toContain('Say exactly: "नमस्कार Rajesh, सुप्रभात."');
+      expect(text).toContain('"कृपया आधी तुमची हजेरी नोंदवा. सुरू करू का?"');
+      const first = await c.say(text, false);
+      expect(first.said, 'the Marathi greeting').toMatch(/नमस्कार/);
+      expect(first.said, 'the Marathi ask').toMatch(/हजेरी/);
+      expect(hindiIn(first.said, HINDI_ONLY), 'no Hindi-only words').toEqual([]);
+      expect(first.tools).toEqual([]);
+    } finally {
+      c.report('(af) the Marathi greeting and ask');
+    }
+  });
+
+  it('(ag) the principal: "Good morning, Principal", today\'s state, then "How can I help?"', async () => {
+    const c = await conversation(...PRINCIPAL);
+    try {
+      const text = await c.kickoff();
+      expect(text).toContain('Say exactly: "Good morning, Principal."');
+      const first = await c.say(text, false);
+      expect(first.said, 'the salutation, not the first name').toMatch(/good morning,? principal/i);
+      expect(first.said).not.toMatch(/\banil\b/i);
+      expect(first.said, 'the help question').toMatch(/how can i help/i);
+      expect(ended(first.tools), 'voice stays open (D-142)').toBe(false);
+    } finally {
+      c.report('(ag) the principal\'s greeting');
+    }
+  });
+
+  /** Staff said well (D-156): the principal's own row is "you"; no third-person self. */
+  const noOwnName = (said: string) => !/\banil\b|deshmukh/i.test(said);
+  const staffRecord = async (c: Awaited<ReturnType<typeof conversation>>, id: string) => (await c.env.app.services.staffAttendance.day(c.ctx)).find((r) => r.member.id === id)?.record;
+
+  it('(ah) "who hasn\'t marked attendance?": get_staff_today, "you" named first, never the principal\'s own name (D-156)', async () => {
+    const c = await conversation(...PRINCIPAL);
+    try {
+      await c.say(await c.kickoff(), false);
+      const turn = await c.say("Who hasn't marked attendance?");
+      expect(turn.tools.map((t) => t.name), 'get_staff_today').toContain('get_staff_today');
+      expect(turn.said, '"you" for the principal').toMatch(/\byou\b/i);
+      expect(noOwnName(turn.said), 'never the principal\'s own name').toBe(true);
+      const you = turn.said.search(/\byou\b/i);
+      const rajesh = turn.said.search(/rajesh/i);
+      if (rajesh >= 0) expect(you, '"you" before the others').toBeLessThan(rajesh);
+      expect(ended(turn.tools)).toBe(false);
+    } finally {
+      c.report('(ah) who has not marked: "you" first');
+    }
+  });
+
+  it('(ai) "mark me present": mark_staff for the principal\'s own row, asked in the second person, one yes saves it (D-156)', async () => {
+    const c = await conversation(...PRINCIPAL);
+    try {
+      await c.say(await c.kickoff(), false);
+      const asked = await c.say('Mark me present');
+      const ask = asked.tools.find((t) => t.name === 'mark_staff');
+      expect(ask, 'mark_staff asked first').toMatchObject({ ok: false, error: 'NEEDS_CONFIRMATION' });
+      expect(await staffRecord(c, 'st-anil'), 'nothing is saved before the yes').toBeUndefined();
+      expect(asked.said, 'the model asks the question').toMatch(/\?/);
+      expect(noOwnName(asked.said), 'never the principal\'s own name').toBe(true);
+      const yes = await c.say('Yes');
+      expect(yes.tools.some((t) => t.name === 'mark_staff' && t.ok && t.args.confirm_token !== undefined), 'the confirmed call went through').toBe(true);
+      expect(await staffRecord(c, 'st-anil')).toMatchObject({ status: 'present', source: 'principal' });
+      expect(c.toolsOf().filter((t) => t.name === 'mark_staff' && t.ok), 'saved exactly once').toHaveLength(1);
+      expect(noOwnName(yes.said)).toBe(true);
+    } finally {
+      c.report('(ai) mark me present');
+    }
+  });
+
+  it('(aj) "mark everyone else present": one question with the count, one yes, everyone saved (D-156)', async () => {
+    const c = await conversation(...PRINCIPAL);
+    try {
+      await c.say(await c.kickoff(), false);
+      await c.say('Mark me present');
+      await c.say('Yes');
+      expect(await staffRecord(c, 'st-anil'), 'own row first').toMatchObject({ status: 'present' });
+      const left = (await c.env.app.services.staffAttendance.day(c.ctx)).filter((r) => !r.record).length;
+      expect(left).toBeGreaterThan(1);
+      const asked = await c.say('Mark everyone else present');
+      const ask = asked.tools.find((t) => t.name === 'mark_remaining_staff');
+      expect(ask, 'mark_remaining_staff asked first').toMatchObject({ ok: false, error: 'NEEDS_CONFIRMATION' });
+      expect(asked.said, 'one question').toMatch(/\?/);
+      expect(saysNumber(asked.said, left), `the count ${left}`).toBe(true);
+      expect((await c.env.app.services.staffAttendance.day(c.ctx)).filter((r) => !r.record), 'nothing saved before the yes').toHaveLength(left);
+      const yes = await c.say('Yes');
+      expect(yes.tools.some((t) => t.name === 'mark_remaining_staff' && t.ok), 'the confirmed call went through').toBe(true);
+      expect((await c.env.app.services.staffAttendance.day(c.ctx)).every((r) => r.record), 'every staff member is marked').toBe(true);
+      expect(c.toolsOf().filter((t) => t.name === 'mark_remaining_staff' && t.ok), 'saved exactly once').toHaveLength(1);
+    } finally {
+      c.report('(aj) everyone else present');
+    }
+  });
+
+  it('(ak) after a save the agent offers the next person by name; one yes marks them (D-156)', async () => {
+    const c = await conversation(...PRINCIPAL);
+    try {
+      await c.say(await c.kickoff(), false);
+      await c.say('Mark Pradeep Gawde absent');
+      const saved = await c.say('Yes');
+      expect(await staffRecord(c, 'st-pradeep')).toMatchObject({ status: 'absent', source: 'principal' });
+      // the save is said, then the next person not marked yet (the principal's own row) is offered as "you", with a question
+      expect(saved.said, 'the save is said first').toMatch(/pradeep|absent|marked/i);
+      expect(saved.said, 'the offer is a question').toMatch(/\?/);
+      expect(saved.said, 'the next one, as "you"').toMatch(/\b(you|yourself)\b/i);
+      expect(noOwnName(saved.said)).toBe(true);
+      const yes = await c.say('Yes');
+      expect(yes.tools.some((t) => t.name === 'mark_staff' && t.ok), 'one yes marks the person offered').toBe(true);
+      expect(await staffRecord(c, 'st-anil')).toMatchObject({ status: 'present', source: 'principal' });
+      expect(yes.said, 'then the next one by name').toMatch(/rajesh/i);
+    } finally {
+      c.report('(ak) the next-person offer');
+    }
+  });
+
+  it('(al) "how is staff attendance this month?": get_staff_report, one or two sentences with the month\'s % (D-156)', async () => {
+    const c = await conversation(...PRINCIPAL);
+    try {
+      await c.say(await c.kickoff(), false);
+      const o = (await c.env.app.services.reports.staffOverview(c.ctx))!;
+      const turn = await c.say('How is staff attendance this month?');
+      expect(turn.tools.map((t) => t.name), 'get_staff_report').toContain('get_staff_report');
+      expect(saysNumber(turn.said, o.pct!), `the month's ${o.pct}%`).toBe(true);
+      const sentences = turn.said.split(/[.?!।]+/).map((x) => x.trim()).filter(Boolean);
+      expect(sentences.length, 'one or two sentences (and the offer to show it)').toBeLessThanOrEqual(3);
+      expect(noOwnName(turn.said)).toBe(true);
+      expect(c.navigated, 'an answer opens nothing').toEqual([]);
+    } finally {
+      c.report('(al) the staff report');
+    }
+  });
+
+  it('(am) the principal asks to open offline data: navigate to=offline (D-153)', async () => {
+    const c = await conversation(...PRINCIPAL);
+    try {
+      await c.say(await c.kickoff(), false);
+      const turn = await c.say('Open offline data');
+      expect(turn.tools.some((t) => t.name === 'navigate' && t.ok && t.args.to === 'offline'), 'navigate to=offline').toBe(true);
+      expect(c.navigated).toContain('/reports/offline');
+      expect(ended(turn.tools)).toBe(false);
+    } finally {
+      c.report('(am) open offline data');
+    }
+  });
+
+  it('(an) a refresh before the trainer answers "Shall I start?": the ask again, never the trade (Task 9 review M5)', async () => {
+    const c = await conversation(RULE_ON);
+    try {
+      const first = await c.say(await c.kickoff(), false);
+      expect(first.said, 'it asks for own attendance first').toMatch(/attendance/i);
+      c.newConnection(); // a goAway swap before the trainer answered
+      const refresh = await c.executor.refresh(null);
+      expect(refresh).toMatch(/^\[APP\] The connection was refreshed; trust these facts over your memory\. The trainer's own attendance is not marked today/);
+      const again = await c.say(refresh, false);
+      expect(again.said, 'the ask again').toMatch(/attendance/i);
+      expect(again.said, 'a question').toMatch(/\?/);
+      expect(again.said, 'never the trades').not.toMatch(/electrician|fitter|which (one|trade)/i);
+      expect(again.tools, 'no tool before the trainer answers').toEqual([]);
+      const yes = await c.say('haan');
+      expect(yes.tools.some((t) => t.name === 'mark_my_attendance' && t.ok), 'yes runs mark_my_attendance').toBe(true);
+    } finally {
+      c.report('(an) a refresh before "Shall I start?"');
     }
   });
 });

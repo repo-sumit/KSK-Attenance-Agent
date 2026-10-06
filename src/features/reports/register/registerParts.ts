@@ -5,15 +5,18 @@
 import type { Mark, StatusCode } from '@/domain/status';
 import type { I18n } from '@/i18n';
 import { endOfMonth, toLocalDate, type LocalDate } from '@/lib/time';
-import type { AttendanceRegister, BatchRegister } from '@/services/report-register';
+import type { AttendanceRegister, BatchRegister, RegisterCell, RegisterDay } from '@/services/report-register';
 import { correctionReason } from '../../common/labels';
 import { escapeHtml as e } from './escape';
 import { registerTable, STATUS_CLASS } from './registerTable';
 
-export interface DocContext {
+/** What every register sheet's header and footer read: the student register (D-137) and the staff register (D-154). */
+export type RegisterHeader = Pick<AttendanceRegister, 'institute' | 'month' | 'to' | 'generatedAt' | 'preparedBy'>;
+
+export interface SheetContext<R extends RegisterHeader = RegisterHeader> {
   readonly t: I18n['t'];
   readonly format: I18n['format'];
-  readonly register: AttendanceRegister;
+  readonly register: R;
   /** "September 2026" in the document's locale. */
   readonly monthLabel: string;
   /** A narrow weekday name ("M") in the document's locale. */
@@ -23,27 +26,30 @@ export interface DocContext {
   readonly sampleData: boolean;
 }
 
+export type DocContext = SheetContext<AttendanceRegister>;
+
 const STATUS_ORDER: readonly StatusCode[] = ['present', 'absent', 'leave', 'half_day', 'ojt'];
 
 export const batchTitle = (c: DocContext, b: BatchRegister) => c.t('register.batchTitle', { trade: b.trade.name, shift: b.batch.shift, unit: b.batch.unit });
 const yearLabel = (c: DocContext, b: BatchRegister) => c.t(b.batch.year === 1 ? 'register.firstYear' : 'register.secondYear');
-const pctText = (c: DocContext, pct: number | null) => (pct === null ? c.t('reports.noValue') : c.format.percent(pct));
+export const pctText = (c: SheetContext, pct: number | null) => (pct === null ? c.t('reports.noValue') : c.format.percent(pct));
 
 /** "1 Sep – 25 Sep 2026" */
-const periodText = (c: DocContext) => c.t('register.range', { from: c.format.dayMonth(c.register.month), to: c.format.dayMonthYear(c.register.to) });
+export const periodText = (c: SheetContext) => c.t('register.range', { from: c.format.dayMonth(c.register.month), to: c.format.dayMonthYear(c.register.to) });
 /** "25 Sep 2026, 10:15 AM" */
-const generatedText = (c: DocContext) =>
+export const generatedText = (c: SheetContext) =>
   c.t('register.generatedValue', { date: c.format.dayMonthYear(toLocalDate(new Date(c.register.generatedAt))), time: c.format.time(c.register.generatedAt) });
 
 /** The current month's register runs to today: "1–25 Sep (to date)". */
-function toDateText(c: DocContext): string | null {
+function toDateText(c: SheetContext): string | null {
   const { month, to } = c.register;
   if (to === endOfMonth(month)) return null;
   const range = to === month ? c.format.dayMonth(to) : `${c.format.number(1)}–${c.format.dayMonth(to)}`;
   return c.t('register.toDate', { range });
 }
 
-export function sheetHeader(c: DocContext): string {
+/** `title`: the register's name in the header ("Monthly Attendance Register" unless given). */
+export function sheetHeader(c: SheetContext, title = c.t('register.title')): string {
   const { institute } = c.register;
   const sub = toDateText(c);
   return (
@@ -51,7 +57,7 @@ export function sheetHeader(c: DocContext): string {
     `<div class="head-org"><div class="authority">${e(c.t('register.authority'))}</div>` +
     `<h1 class="institute">${e(institute.name)}</h1>` +
     `<div class="inst-line">${e(c.t('register.instituteLine', { code: institute.code, district: institute.district }))}</div></div>` +
-    `<div class="head-doc"><div class="doc-title">${e(c.t('register.title'))}</div>` +
+    `<div class="head-doc"><div class="doc-title">${e(title)}</div>` +
     `<div class="doc-month">${e(c.monthLabel)}</div>${sub ? `<div class="doc-sub">${e(sub)}</div>` : ''}</div></header>` +
     `<div class="rule-accent"></div>`
   );
@@ -72,7 +78,7 @@ function metaGrid(c: DocContext, b: BatchRegister): string {
   return `<dl class="meta">${items.map(([k, v]) => `<div><dt>${e(k)}</dt><dd>${e(v)}</dd></div>`).join('')}</dl>`;
 }
 
-function kpi(label: string, value: string, sub: string, warn: boolean): string {
+export function kpi(label: string, value: string, sub: string, warn: boolean): string {
   return `<div class="kpi${warn ? ' warn' : ''}"><div class="kpi-label">${e(label)}</div><div class="kpi-value">${e(value)}</div><div class="kpi-sub">${e(sub)}</div></div>`;
 }
 
@@ -89,7 +95,15 @@ function kpiStrip(c: DocContext, b: BatchRegister): string {
   );
 }
 
-function legend(c: DocContext, b: BatchRegister): string {
+/** What the legend reads from a sheet: its days, its rows' cells and whether it has corrections. */
+interface LegendSource {
+  readonly days: readonly RegisterDay[];
+  readonly rows: ReadonlyArray<{ readonly cells: readonly (RegisterCell | null)[] }>;
+  readonly corrections: readonly unknown[];
+}
+
+/** `words`: the staff register's own wording for a day without records and for how it counts. */
+export function legend(c: SheetContext, b: LegendSource, words: { readonly noDay?: string; readonly how?: string } = {}): string {
   const { t } = c;
   const seen = new Set<StatusCode>(['present', 'absent']);
   let mixed = false;
@@ -103,11 +117,11 @@ function legend(c: DocContext, b: BatchRegister): string {
   const marks = [
     ...(mixed ? [item('s-m', e(`${c.format.number(1)}/${c.format.number(2)}`), t('register.legend.sessions'))] : []),
     ...(b.corrections.length > 0 ? [item('star-chip', '*', t('register.legend.corrected'))] : []),
-    item('none', '', t('register.legend.noClass')),
+    item('none', '', words.noDay ?? t('register.legend.noClass')),
     ...(b.days.some((d) => d.kind === 'pending') ? [item('pend', '', t('register.legend.pending'))] : []),
     ...(b.days.some((d) => d.kind === 'upcoming') ? [item('up', '', t('register.legend.upcoming'))] : []),
   ];
-  return `<div class="legend"><span class="legend-title">${e(t('register.legend.title'))}</span>${[...statuses, ...marks].join('')}</div><p class="how">${e(t('register.howCounted'))}</p>`;
+  return `<div class="legend"><span class="legend-title">${e(t('register.legend.title'))}</span>${[...statuses, ...marks].join('')}</div><p class="how">${e(words.how ?? t('register.howCounted'))}</p>`;
 }
 
 function markText(c: DocContext, mark: Mark): string {
@@ -137,7 +151,7 @@ function signatures(c: DocContext, b: BatchRegister): string {
   );
 }
 
-export function sheetFooter(c: DocContext): string {
+export function sheetFooter(c: SheetContext): string {
   const { t, register } = c;
   const by = t('register.generated', { when: generatedText(c), name: register.preparedBy.name, role: t(`role.${register.preparedBy.role}`) });
   return `<footer class="foot"><span>${e(by)}</span>${c.sampleData ? `<span class="sample">${e(t('register.sample'))}</span>` : ''}</footer>`;

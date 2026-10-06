@@ -45,11 +45,11 @@ describe('buildSystemPrompt', () => {
   });
   it('holds no master data and stays compact', () => {
     expect(text).not.toMatch(/Electrician|Fitter|Shift 1, Unit/);
-    // 1700 since D-141 (own attendance by its tools); the identity, rules and every capability section are in it
-    expect(text.split(/\s+/).length).toBeLessThan(1700);
+    // 1800 since D-155 (the VOICE AND TONE persona); the identity, rules and every capability section are in it
+    expect(text.split(/\s+/).length).toBeLessThan(1800);
   });
   it('carries the identity and date line', () => {
-    expect(text).toContain('You are Sahayak');
+    expect(text).toContain('You are Voice Agent, a voice attendance assistant');
     expect(text).toContain('Rajesh, an instructor at Govt ITI Pune');
     expect(text).toContain('Today is Friday, 2 October 2026 in India.');
   });
@@ -70,10 +70,10 @@ describe('buildSystemPrompt', () => {
     expect(text).toContain('start_roll_call');
   });
   it('flow follows the selection: the first [APP] message says what can be marked now (D-134)', () => {
-    expect(text).toContain('1. Start: the first [APP] message lists the trades. Greet the trainer in one short line and ask which one.\n2. Trade: ');
+    expect(text).toContain('1. Start: the first [APP] message gives the greeting to say and what to offer: own attendance first, or the trades with a batch open and not yet marked. Say the greeting exactly as given, then do what it says.\n2. Trade: ');
     expect(text).not.toContain('call get_trades');
     const list = buildSystemPrompt({ ...PLAN, tradeStep: false, selection: 'batch_list' }, WHO);
-    expect(list).toContain('1. Start: the first [APP] message says what can be marked now; it may already have opened the only open batch. Greet the trainer in one short line and do what it says. Later, get_status tells you where things stand.\n2. Batch: ');
+    expect(list).toContain('1. Start: the first [APP] message gives the greeting to say and what can be marked now; it may already have opened the only open batch. Say the greeting exactly as given, then do what it says. Later, get_status tells you where things stand.\n2. Batch: ');
     const periods = buildSystemPrompt({ ...PLAN, tradeStep: false, selection: 'timetable' }, WHO);
     expect(periods).toContain('it may already have opened the only open period.');
   });
@@ -86,11 +86,11 @@ describe('buildSystemPrompt', () => {
   it('style: short turns, only what can be marked now, no offers of more help (D-135)', () => {
     expect(text).toContain([
       'STYLE',
-      '- You are a fast assistant, not a chatbot. Say as little as possible: one short sentence per turn, at most 12 words, unless an instruction asks you to read counts or ask a confirmation question. During roll call keep every turn under 8 words, not counting the call_as you read out.',
+      '- Be brief and efficient, never rushed: one short sentence per turn, at most 12 words, unless an instruction asks you to read counts or ask a confirmation question. During roll call keep every turn under 8 words, not counting the call_as you read out.',
       '- Read out only what can be marked now or what the trainer asks about: never list batches or periods that cannot be marked now.',
       '- Confirm with the first name and the status only ("Rahul, absent."), then ask the next question. Never add "Confirmed", "marked", "done", "okay", "bataiye", "next student" or roll numbers.',
       '- Give counts only when everyone is marked, when the trainer asks, or when an instruction says to.',
-      '- No filler ("great", "sure", "okay so"), no repeated questions, and never offer more help ("anything else I can help with?"). "Anyone else?" while marking absentees is the marking question, not filler; "What do you need?" is asked only when an [APP] message says so. Never explain what you are doing ("let me check").',
+      '- No filler ("great", "sure", "okay so"), no repeated questions, and never offer more help ("anything else I can help with?"). "Anyone else?" while marking absentees is the marking question, not filler; "How can I help?" is asked only when an [APP] message says so. Never explain what you are doing ("let me check").',
       '- Never say tool names, ids, codes, JSON or technical words.',
     ].join('\n'));
   });
@@ -129,7 +129,7 @@ describe('buildSystemPrompt', () => {
     expect(text).toContain("Reply in the language of the trainer's last full sentence when it is Indian English or Marathi; otherwise reply in Indian English.");
     expect(text).toContain('One-word answers');
     expect(text).toContain('Never translate student names.');
-    expect(text).toContain('Indian English accent');
+    expect(text.split('\nLANGUAGE\n')[1]).not.toMatch(/accent/);
     const mr = buildSystemPrompt({ ...PLAN, languages: ['mr'], openingLanguage: 'mr' }, WHO);
     expect(mr).toContain('Speak only Marathi.');
     expect(mr).not.toContain('Indian English');
@@ -147,7 +147,6 @@ describe('buildSystemPrompt', () => {
       '- One-word answers ("present", "haan", "हजर") never switch the language.',
       '- Never translate student names.',
       '- Say numbers the way the current language says them.',
-      '- In English use an Indian English accent and Indian pronunciation of names.',
     ].join('\n'));
     // built from plan.languages, in their order: no language list is written into the prompt code
     const reversed = block(buildSystemPrompt({ ...PLAN, languages: ['mr', 'en'], openingLanguage: 'mr' }, WHO));
@@ -194,18 +193,19 @@ describe('buildSystemPrompt', () => {
     expect(taggedOnly).toContain('-> mark_my_attendance. The app opens My attendance; when the screen is done, the app marks it and tells you.');
     expect(taggedOnly).not.toMatch(/location|identity|There is no override/);
   });
-  it('staff attendance by voice (D-141): the principal reads the day and marks one person after a coded yes', () => {
+  it('staff attendance by voice (D-141, D-156): the principal reads the day ("you"), marks one person or "me", or everyone else, after a coded yes', () => {
     const out = buildVoicePrompt(PRINCIPAL_PLAN, { ...WHO, trainerFirstName: 'Anil' });
     expect(out).toContain(
       'STAFF\n' +
-        '- "staff ki hajeri", "who has not marked attendance?" -> get_staff_today, then answer in one or two short sentences from its counts and names.\n' +
-        '- "mark Pradeep absent", "Sunil ko present lagao" -> mark_staff with the name and the status. It first answers NEEDS_CONFIRMATION with a confirm_token: ask its question, and only after a clear yes call mark_staff again with that confirm_token. If the answer is not a clear yes, do not call it. Never invent a code.\n' +
+        '- "staff ki hajeri", "who has not marked attendance?" -> get_staff_today, then answer in one or two short sentences from its counts and names. The principal\'s own row is "you", never their name.\n' +
+        '- "mark Pradeep absent", "Sunil ko present lagao" -> mark_staff with the name and the status; "mark me present", "meri attendance lagao" -> staff "me". It first answers NEEDS_CONFIRMATION with a confirm_token: ask its question, and only after a clear yes call mark_staff again with that confirm_token. If the answer is not a clear yes, do not call it. Never invent a code.\n' +
+        '- "mark everyone else present", "baaki sab staff present" -> mark_remaining_staff with the status: one question with the count, then its confirm_token after a clear yes.\n' +
         '- Only staff with no mark today can be marked; a mark a person made themselves stands. Marks are corrected only on the screen.\n' +
         '- "staff attendance kholo" -> navigate with to=staff_attendance.',
     );
     const viewOnly = buildVoicePrompt({ ...PRINCIPAL_PLAN, capabilities: { ...PRINCIPAL_PLAN.capabilities, staffMarking: false, staffStatuses: [] } }, WHO);
     expect(viewOnly).toContain('STAFF\n- "staff attendance", "staff ki hajeri" -> navigate with to=staff_attendance: the screen shows who is marked. You cannot mark staff yourself.');
-    expect(viewOnly).not.toMatch(/mark_staff|get_staff_today/);
+    expect(viewOnly).not.toMatch(/mark_staff|get_staff_today|mark_remaining_staff/);
   });
   it('reports and insights by voice (D-140): the report tools, numbers only from them, the offer to show, the register', () => {
     expect(text).toContain(
@@ -223,12 +223,20 @@ describe('buildSystemPrompt', () => {
     expect(principal).toContain('- "how is the institute doing?", "report batao" -> get_reports_overview.');
   });
   it('the report lines follow the report sections: a tool the plan does not declare is never named', () => {
-    const reportsOf = (reportSections: { batches: boolean; atRisk: boolean; institute: boolean }) =>
-      buildVoicePrompt(voicePlan(PLAN, { ...CAPS, reportSections, downloads: reportSections.batches }), WHO).split('\nREPORTS\n')[1].split('\n\n')[0];
+    const reportsOf = (sections: { batches: boolean; atRisk: boolean; institute: boolean; staff?: boolean }) => {
+      const reportSections = { staff: false, ...sections };
+      return buildVoicePrompt(voicePlan(PLAN, { ...CAPS, reportSections, downloads: reportSections.batches || reportSections.staff }), WHO).split('\nREPORTS\n')[1].split('\n\n')[0];
+    };
     const noRisk = reportsOf({ batches: true, atRisk: false, institute: false });
     expect(noRisk).toContain('-> get_batch_report.');
     expect(noRisk).not.toContain('get_at_risk');
     expect(noRisk).not.toContain('at risk');
+    // the staff section (D-156): the staff report line, and "staff" for the staff register
+    const withStaff = reportsOf({ batches: true, atRisk: true, institute: false, staff: true });
+    expect(withStaff).toContain('"how is staff attendance this month?", "staff report" -> get_staff_report.');
+    expect(withStaff).toContain('-> download_register with the batch or trade or "staff" for the staff register and THIS_MONTH or LAST_MONTH');
+    expect(reportsOf({ batches: true, atRisk: true, institute: false })).toContain('-> download_register with the batch or trade and THIS_MONTH or LAST_MONTH (this month when not said).');
+    expect(reportsOf({ batches: true, atRisk: true, institute: false })).not.toContain('get_staff_report');
     const riskOnly = reportsOf({ batches: false, atRisk: true, institute: false });
     expect(riskOnly).toContain('-> get_at_risk.');
     expect(riskOnly).toContain('-> get_student_report.');
@@ -251,10 +259,38 @@ describe('buildSystemPrompt', () => {
     expect(out).toContain('In tool results and [APP] messages, "the trainer" means them.');
     expect(out).toContain('SCOPE\n- You help only with this app: attendance, staff attendance, reports and insights, announcements and opening screens.');
     for (const h of ['TODAY', 'STAFF', 'REPORTS', 'ANNOUNCEMENTS', 'SCREENS', 'LANGUAGE', 'STYLE']) expect(out).toContain(`\n${h}\n`);
+    // Offline for every user (D-153): Offline data is one of the principal's screens.
+    expect(out.split('\nSCREENS\n')[1].split('\n')[0]).toBe('- "home dikhao", "open reports" -> navigate with to=home or attendance or reports or offline or staff_attendance or announcements.');
     for (const h of ['\nFLOW\n', '\nANSWERS', '\nCONFIRMATION\n', '\nVERIFICATION\n', 'call_as', 'Read out only what can be marked now']) expect(out).not.toContain(h);
     const declared = new Set(buildTools(PRINCIPAL_PLAN).map((t) => t.name));
     for (const name of TOOL_NAMES) if (new RegExp(`\\b${name}\\b`).test(out)) expect(declared.has(name), `${name} named but not declared`).toBe(true);
-    expect(out.split(/\s+/).length).toBeLessThan(900);
+    expect(out.split(/\s+/).length).toBeLessThan(1100); // 1000 since D-155 (the persona); 1100 since D-156 (staff said well, the staff report)
+  });
+  it('VOICE AND TONE comes right after the identity, built from the plan\'s languages (D-155)', () => {
+    const blocks = text.split('\n\n');
+    expect(blocks[0]).toMatch(/^You are Voice Agent/);
+    expect(blocks[1]).toBe([
+      'VOICE AND TONE',
+      '- Your voice is calm, soft and warm, at a normal speaking volume: never loud or excited.',
+      '- Speak at an unhurried, even pace with short natural pauses, like a respectful senior colleague in an Indian institute.',
+      '- In English, always speak Indian English with a natural Indian accent and Indian pronunciation of names.',
+      '- In Marathi, speak Marathi as it is spoken in Pune, and use feminine first-person forms (for example "मी करते", never "मी करतो").',
+      '- Keep the same voice, accent, pace and tone in every reply and in every language, from the first word to the last.',
+    ].join('\n'));
+    const mrOnly = buildSystemPrompt({ ...PLAN, languages: ['mr'], openingLanguage: 'mr' }, WHO).split('\n\n')[1];
+    expect(mrOnly).toContain('In Marathi, speak Marathi as it is spoken in Pune');
+    expect(mrOnly).not.toMatch(/English/);
+    expect(buildVoicePrompt(PRINCIPAL_PLAN, WHO).split('\n\n')[1]).toMatch(/^VOICE AND TONE\n/);
+  });
+  it('SCOPE never primes "I can only help with": a request outside the app gets one polite line (D-156)', () => {
+    expect(text).toContain('- For a request outside this app, say politely in one short line that it is outside what you do here, then return to the current step.');
+    expect(text).not.toMatch(/can only help/);
+  });
+  it('the principal is greeted and addressed by the salutation; TODAY asks "How can I help?"', () => {
+    const out = buildVoicePrompt(PRINCIPAL_PLAN, { ...WHO, trainerFirstName: 'Anil' });
+    expect(out).toContain('Address them as Principal.');
+    expect(out).toContain('- The first [APP] message gives the greeting and today\'s state. Say the greeting exactly as given, then today\'s state in one line, then ask "How can I help?".');
+    expect(out).not.toContain('What do you need?');
   });
   it('firstName leaves out a title: "Dr. Anil Deshmukh" is Anil', () => {
     expect(firstName('Dr. Anil Deshmukh')).toBe('Anil');

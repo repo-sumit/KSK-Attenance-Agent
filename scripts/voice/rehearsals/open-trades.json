@@ -1,0 +1,10 @@
+{
+  "preset": "open",
+  "lang": "en",
+  "viewport": [1280, 800],
+  "voice": "Rishi",
+  "lead": 10,
+  "steps": [{ "say": "Electrician", "gap": 14 }],
+  "tail": 6,
+  "shotEvery": 4
+}

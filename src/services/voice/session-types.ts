@@ -13,7 +13,8 @@ import type { TokenError } from './live/token-client';
 import type { LiveSetup, LiveToken, LiveTransport } from './live/transport';
 import type { VoiceUsage } from './usage';
 
-export type VoiceStatus = 'idle' | 'connecting' | 'listening' | 'speaking' | 'paused' | 'reconnecting' | 'error' | 'ended';
+/** `working`: live, while a blocking tool call has run longer than 400 ms with no agent audio playing (D-156). */
+export type VoiceStatus = 'idle' | 'connecting' | 'listening' | 'speaking' | 'working' | 'paused' | 'reconnecting' | 'error' | 'ended';
 export type VoiceErrorCode =
   | 'mic_denied' | 'mic_unavailable' | 'insecure' | 'unsupported' | 'unavailable' | 'rate_limited' | 'connect_failed'
   | 'dropped' | 'offline' | 'daily_limit' | 'session_limit' | 'idle' | 'failures';
@@ -30,6 +31,8 @@ export interface VoiceState {
   readonly minutesLeft: number;
   /** The agent's current student; `seq` (the focus_student event's) changes on every focus, the same student asked again included. */
   readonly focus: { readonly sessionKey: string; readonly studentId: string; readonly seq: number } | null;
+  /** 'camera' while a face camera holds the mic off (D-086, D-148): voice comes back by itself when it closes. */
+  readonly micHeld: 'camera' | null;
 }
 
 export interface Timers {

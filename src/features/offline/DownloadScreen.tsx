@@ -37,8 +37,9 @@ export function DownloadScreen() {
   const have = new Set((held ?? []).map((r) => r.batch.id));
   const batches = packs.downloadable(ctx);
   const multi = ctx.journey.offline.multiSelect;
-  const enabled = ctx.journey.offline.enabled;
-  const fallback = ctx.journey.navTabs.includes('reports') ? routes.reports : routes.home;
+  const enabled = ctx.journey.offline.packs;
+  // No packs for this user (D-153): back to Offline data while offline is on, else to Reports or Home.
+  const fallback = ctx.journey.offline.enabled ? routes.offline : ctx.journey.navTabs.includes('reports') ? routes.reports : routes.home;
   useEffect(() => {
     if (!enabled) router.replace(fallback);
   }, [enabled, fallback, router]);

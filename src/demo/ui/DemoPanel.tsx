@@ -10,12 +10,19 @@ import { useQuery } from '@/hooks/useQuery';
 import { cx } from '@/lib/cx';
 import type { DemoAdapters } from '../adapters';
 import type { DemoController } from '../controller';
-import { PERSONAS } from '../personas';
+import { PERSONAS, type DemoPersona } from '../personas';
 import { PRESETS } from '../presets';
 import { DemoData } from './DemoData';
-import { Choice, DemoSettings } from './DemoSettings';
+import { DemoQuick } from './DemoQuick';
+import { DemoSettings } from './DemoSettings';
 import { useDemoState } from './useDemoState';
 import styles from './DemoPanel.module.css';
+
+/** DEMO ONLY. The demo persona signed in now (by the session's staff id), if any. */
+export function useSignedInPersona(): DemoPersona | undefined {
+  const { state: session } = useSessionState();
+  return session.status === 'ready' ? PERSONAS.find((p) => p.staffId === session.ctx.user.id) : undefined;
+}
 
 /**
  * DEMO ONLY. The title bar's subtitle: the visible "not part of the product"
@@ -23,9 +30,8 @@ import styles from './DemoPanel.module.css';
  */
 export function DemoStatus({ demo }: { readonly demo: DemoAdapters }) {
   const state = useDemoState(demo);
-  const { state: session } = useSessionState();
+  const signedIn = useSignedInPersona();
   const { language } = useI18n();
-  const signedIn = session.status === 'ready' ? PERSONAS.find((p) => p.staffId === session.ctx.user.id) : undefined;
   return (
     <>
       <Badge tone="warning" className={styles.cue}>
@@ -39,14 +45,20 @@ export function DemoStatus({ demo }: { readonly demo: DemoAdapters }) {
   );
 }
 
+/** Each person's everyday story (the preset with the persona's id) and the stories that are not one person's day. */
+const PEOPLE = PERSONAS.map((persona) => ({ persona, story: PRESETS.find((p) => p.id === persona.id)! }));
+const STORIES = PRESETS.filter((p) => !PERSONAS.some((persona) => persona.id === p.id));
+
 /**
  * DEMO ONLY — presenter controls. Never part of the instructor product (English only on purpose).
- * Order follows how a demo is run: pick a story (presets), or pick who logs in
- * (quick login); everything else waits under Advanced.
+ * Ordered by what a presenter does (D-157): pick who to show (Sign in as signs straight in), or a story that is not one
+ * person's day; then the few settings changed during a demo (Quick settings, always open); everything else waits
+ * under Advanced; then where the data lives and Reset.
  */
 export function DemoPanel({ demo, controller, onDone }: { readonly demo: DemoAdapters; readonly controller: DemoController; readonly onDone?: () => void }) {
   const state = useDemoState(demo);
   const { state: session } = useSessionState();
+  const signedIn = useSignedInPersona();
   const { configuration, faceMatch } = useServices();
   const { language } = useI18n();
   const ctx = session.status === 'ready' ? session.ctx : null;
@@ -59,10 +71,41 @@ export function DemoPanel({ demo, controller, onDone }: { readonly demo: DemoAda
 
   return (
     <div className={styles.panel} lang="en">
-      <section className={styles.section} aria-labelledby="demo-presets">
-        <h3 id="demo-presets" className={styles.sectionTitle}>Quick presets</h3>
+      <section className={styles.section}>
+        <h3 id="demo-sign-in" className={styles.sectionTitle}>
+          Sign in as
+        </h3>
+        {/* One divided list; the person signed in is marked (check, brand tint, aria-current). Only the list is named. */}
+        <ul className={styles.personas} aria-labelledby="demo-sign-in">
+          {PEOPLE.map(({ persona, story }) => {
+            const current = signedIn?.id === persona.id;
+            return (
+              <li key={persona.id} className={styles.personaItem}>
+                <button type="button" className={cx(styles.persona, current && styles.current)} aria-current={current ? 'true' : undefined} onClick={() => run(controller.applyPreset(story.id))}>
+                  <span className={styles.personaText}>
+                    {/* The person's own title, as the login screen's Demo accounts name them (U18); stories keep theirs. */}
+                    <span className={styles.presetTitle}>{persona.title}</span>
+                    <span className={styles.presetLine}>
+                      {persona.name} · {story.line}
+                    </span>
+                  </span>
+                  <Icon name={current ? 'check' : 'log-in'} size={20} className={styles.personaIcon} />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+        <Button variant="secondary" size="md" fullWidth leadingIcon="log-in" onClick={() => run(controller.showLogin())}>
+          Show the login screens
+        </Button>
+      </section>
+
+      <section className={styles.section} aria-labelledby="demo-stories">
+        <h3 id="demo-stories" className={styles.sectionTitle}>
+          Stories
+        </h3>
         <div className={styles.presets}>
-          {PRESETS.map((p) => (
+          {STORIES.map((p) => (
             <button key={p.id} type="button" className={cx(styles.preset, state.presetId === p.id && styles.active)} aria-pressed={state.presetId === p.id} onClick={() => run(controller.applyPreset(p.id))}>
               <span className={styles.presetTitle}>{p.title}</span>
               <span className={styles.presetLine}>{p.line}</span>
@@ -71,29 +114,7 @@ export function DemoPanel({ demo, controller, onDone }: { readonly demo: DemoAda
         </div>
       </section>
 
-      <section className={styles.section} aria-labelledby="demo-login">
-        <h3 id="demo-login" className={styles.sectionTitle}>Quick login</h3>
-        <p className={styles.hint}>{state.skipLogin ? 'Signs straight in (Skip login is on).' : 'Opens login: pick them under “Use demo account”.'}</p>
-        {/* One divided list; the persona in play is marked (check, brand tint, aria-current). */}
-        <ul className={styles.personas} aria-labelledby="demo-login">
-          {PERSONAS.map((p) => {
-            const current = state.persona === p.id;
-            return (
-              <li key={p.id} className={styles.personaItem}>
-                <button type="button" className={cx(styles.persona, current && styles.current)} aria-current={current ? 'true' : undefined} onClick={() => run(controller.quickLogin(p.id))}>
-                  <span className={styles.personaText}>
-                    <span className={styles.presetTitle}>{p.title}</span>
-                    <span className={styles.presetLine}>
-                      {p.name} · {p.trainerId}
-                    </span>
-                  </span>
-                  <Icon name={current ? 'check' : state.skipLogin ? 'log-in' : 'arrow-right'} size={20} className={styles.personaIcon} />
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      </section>
+      <DemoQuick config={config} state={state} controller={controller} language={language} />
 
       <details className={styles.advanced}>
         <summary className={styles.summary}>
@@ -101,11 +122,7 @@ export function DemoPanel({ demo, controller, onDone }: { readonly demo: DemoAda
           <Icon name="chevron-down" size={20} className={styles.summaryIcon} />
         </summary>
         <div className={styles.advancedBody}>
-          <section className={styles.section}>
-            <h3 className={styles.sectionTitle}>Login</h3>
-            <Choice label="Skip login screens" value={state.skipLogin ? 'on' : 'off'} options={[['off', 'Off'], ['on', 'On']]} onChange={(v) => controller.setSkipLogin(v === 'on')} />
-          </section>
-          <DemoSettings config={config} state={state} controller={controller} faceEnrolled={enrolled ?? true} language={language} />
+          <DemoSettings config={config} state={state} controller={controller} faceEnrolled={enrolled ?? true} />
         </div>
       </details>
 

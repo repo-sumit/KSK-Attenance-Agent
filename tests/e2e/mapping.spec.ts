@@ -28,7 +28,7 @@ test('Employability Skills: several trades, only selected batches, a separate ES
   await preset(page, 'es');
   await expect(page.getByText('Employability Skills · 5 batches in 4 trades')).toBeVisible();
   for (const trade of ['Electrician', 'Fitter', 'Welder', 'COPA']) await expect(page.locator('main').getByRole('heading', { name: trade })).toBeVisible();
-  // Rajesh already submitted Electrician S1U1 today; the ES class for the same batch is still open.
+  // Electrician S1U1's trade class was submitted today (by Kalpana, a self-marked colleague, U2); the ES class for the same batch is still open.
   const s1u1 = page.locator('main').getByRole('link', { name: /Shift 1 · Unit 1/ }).first();
   await expect(s1u1).toContainText('Mark attendance');
   await s1u1.click();

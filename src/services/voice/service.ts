@@ -7,6 +7,7 @@
  */
 import type { Language } from '@/config/types';
 import { compileVoicePlan, type VoicePlan } from '@/domain/voice/plan';
+import { voiceFor } from '@/domain/voice/voices';
 import { toLocalDate } from '@/lib/time';
 import type { Clock } from '@/lib/time';
 import type { VoiceUsageRepository } from '@/repositories/interfaces';
@@ -94,6 +95,11 @@ export class VoiceService {
     return this.liveLoad;
   }
 
+  /** The container is going away (D-158): a running session stops. */
+  dispose(): void {
+    this.session?.stop();
+  }
+
   /** The voice plan for this session, or null when voice does not exist for it. */
   plan(ctx: SessionContext, screenLanguage: Language): VoicePlan | null {
     return compileVoicePlan(ctx, screenLanguage);
@@ -133,11 +139,13 @@ export class VoiceService {
     });
 
     const who = { trainerFirstName: firstName(ctx.user.name), instituteName: ctx.institute.shortName, todayText: TODAY_TEXT.format(deps.clock.now()) };
+    // one fixed voice per opening language (D-155), chosen once: every reconnect and goAway swap reuses it
+    const voiceName = voiceFor(ctx.journey.voice, plan.openingLanguage);
     const setup = async (handle?: string): Promise<LiveSetup> => ({
       model: MODEL,
       systemInstruction: buildSystemPrompt(plan, who),
       tools: buildTools(plan),
-      voiceName: ctx.journey.voice.voiceName,
+      voiceName,
       resumeHandle: handle,
     });
     const usage = new VoiceUsage({

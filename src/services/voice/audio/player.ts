@@ -6,9 +6,16 @@ const RATE = 24000; // Live API audio out: PCM16 mono 24 kHz
  */
 export class PcmPlayer {
   private next = 0;
+  /** A cue sounds until then (context seconds): speech that arrives before it starts when it ends (D-156). */
+  private hold = 0;
   private sources = new Set<AudioBufferSourceNode>();
 
   constructor(private readonly ctx: AudioContext) {}
+
+  /** Speech that arrives before `time` (context seconds) starts at `time`: an earcon is sounding. */
+  holdUntil(time: number): void {
+    this.hold = Math.max(this.hold, time);
+  }
 
   play(pcm: Int16Array): void {
     if (!pcm.length) return;
@@ -21,6 +28,7 @@ export class PcmPlayer {
     // Small lead only when the queue has run dry, so the first chunk is not clipped; otherwise
     // the chunk goes straight after the one already queued (no inserted gap).
     if (this.next < this.ctx.currentTime) this.next = this.ctx.currentTime + 0.05;
+    if (this.next < this.hold) this.next = this.hold;
     src.start(this.next);
     this.next += buf.duration;
     this.sources.add(src);

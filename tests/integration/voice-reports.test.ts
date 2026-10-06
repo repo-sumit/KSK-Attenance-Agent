@@ -130,13 +130,13 @@ describe('get_reports_overview', () => {
     expect(s.events).toEqual([]); // answering opens nothing
   });
 
-  it('the principal also hears the institute summary and staff presence', async () => {
+  it('the principal also hears the institute summary and this month\'s staff attendance, as the Staff attendance section shows it (D-156)', async () => {
     const s = await voiceFor('PR-2741');
-    const summary = await s.reports.instituteSummary(s.ctx);
+    const [summary, staff] = await Promise.all([s.reports.instituteSummary(s.ctx), s.reports.staffOverview(s.ctx)]);
     const r = await s.call('get_reports_overview');
-    expect(r.institute).toEqual({ avg_pct: summary.pct, students: 417, batches: 17, staff_pct: summary.staffPct });
+    expect(r.institute).toEqual({ avg_pct: summary.pct, students: 417, batches: 17, staff_pct: staff!.pct, staff_range: 'this_month' });
     expect((r.batches as unknown[]).length).toBe(17);
-    expect(r.instruction).toMatch(new RegExp(`^The institute over the last 30 days: ${summary.pct}% average, 417 students in 17 batches, staff presence ${summary.staffPct}%\\. Lowest batch: .+ \\d+%; highest: .+ \\d+%\\. This month \\d+%, last month \\d+%`));
+    expect(r.instruction).toMatch(new RegExp(`^The institute over the last 30 days: ${summary.pct}% average, 417 students in 17 batches; staff attendance this month ${staff!.pct}%\\. Lowest batch: .+ \\d+%; highest: .+ \\d+%\\. This month \\d+%, last month \\d+%`));
   });
 });
 

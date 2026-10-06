@@ -11,7 +11,7 @@ import type { SimulationSource, SimulationState } from '@/services/simulation';
 import { createDefaultStore } from '@/lib/kv-store';
 import { instantAt, toLocalDate, type Clock } from '@/lib/time';
 import { DemoStateRepository } from './store';
-import { personaById, personaForStaff, type PersonaId } from './personas';
+import { PERSONAS, personaById, personaForStaff, type PersonaId } from './personas';
 import { PRESETS } from './presets';
 import { mergeConfigLayer } from '@/config/resolve';
 
@@ -50,15 +50,20 @@ class DemoConfigOverrides implements ConfigOverridesSource {
 }
 
 /**
- * "Use demo account" on the login screens, in this order. Each account's id is
- * both its persona and the preset that tells its story (same ids).
+ * "Demo accounts" on the login screen: every persona, in persona order. Each
+ * account's id is both its persona and the preset that tells its story (same
+ * ids), so a row's line is that story's line.
  */
-export const DEMO_ACCOUNTS: readonly PersonaId[] = ['open', 'batch', 'timetable', 'es', 'principal'];
+export const DEMO_ACCOUNTS: readonly PersonaId[] = PERSONAS.map((p) => p.id);
 
 const OPTIONS: readonly LoginAssistOption[] = DEMO_ACCOUNTS.map((id) => {
   const p = personaById(id);
-  return { id, label: p.title, who: p.name };
+  return { id, label: p.title, who: p.name, line: PRESETS.find((s) => s.id === id)?.line ?? '' };
 });
+
+/** The list's text (demo tooling is English-only, D-047). Also the needles of scripts/check-demo-stripped.mjs. */
+const HEADING = 'Demo accounts';
+const HINT = 'Tap a person: you still confirm the institute and the person.';
 const CREDENTIALS: ReadonlyMap<string, LoginCredentials> = new Map(
   DEMO_ACCOUNTS.map((id) => {
     const p = personaById(id);
@@ -70,10 +75,10 @@ const CREDENTIALS: ReadonlyMap<string, LoginCredentials> = new Map(
 export type PrepareDemoAccount = (presetId: string) => unknown;
 
 /**
- * The login screens' demo account chooser. It is built before the app
- * container exists, so the step that prepares an account's story is connected
- * afterwards (boot.ts). The persona picked last in the demo panel is only
- * highlighted: nothing reaches a field until the user picks an account.
+ * The login screen's demo accounts. It is built before the app container
+ * exists, so the step that prepares an account's story is connected afterwards
+ * (boot.ts). The persona picked last in the demo panel is only highlighted:
+ * nothing happens until the user taps an account.
  */
 export class DemoLoginAssist implements LoginAssistSource {
   private prepare: PrepareDemoAccount | null = null;
@@ -90,7 +95,7 @@ export class DemoLoginAssist implements LoginAssistSource {
     if (this.cache?.persona !== persona)
       this.cache = {
         persona,
-        value: { label: 'Use demo account', chosenLabel: 'Demo account', changeLabel: 'Change', options: OPTIONS, suggested: DEMO_ACCOUNTS.includes(persona) ? persona : null },
+        value: { heading: HEADING, hint: HINT, options: OPTIONS, suggested: DEMO_ACCOUNTS.includes(persona) ? persona : null },
       };
     return this.cache.value;
   }

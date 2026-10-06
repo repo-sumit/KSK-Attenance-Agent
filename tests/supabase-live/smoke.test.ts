@@ -49,8 +49,9 @@ function device(client: DataClient, date: LocalDate): AppContainer {
     preferencesStore: new MemoryStore(),
     clock: new FixedClock(instantAt(date, '10:15')),
     simulation: new StaticSimulationSource({ ...DEFAULT_SIMULATION, speed: 0 }),
-    // The test instructor's story: batch-mapped, location checked, no face step (no enrolment on the test institute).
-    configOverrides: { get: () => ({ mapping: { model: 'batch' }, verification: { face: false } }) },
+    // The test instructor's story: batch-mapped, location checked, no face step (no enrolment on the test institute),
+    // and no own-attendance-first step (D-152): the test date has no staff records.
+    configOverrides: { get: () => ({ mapping: { model: 'batch' }, verification: { face: false }, staff: { selfBeforeStudents: false } }) },
     client,
     cacheStore: new MemoryStore(),
   });
@@ -60,8 +61,12 @@ function device(client: DataClient, date: LocalDate): AppContainer {
 
 /**
  * The Realtime channel joins a moment after sign-in, and a change made before it joined is never delivered. Wait until
- * the device hears a probe: the test instructor's face flag written and removed (test institute only), tried again
- * every few seconds until it is heard. The flag is removed afterwards whatever happens.
+ * the device hears a probe: the test instructor's face flag written (test institute only) and kept until it is heard
+ * or a few seconds pass, then removed; tried again until it is heard. The flag must stay while Realtime looks at it:
+ * with RLS on, Postgres Changes reads an inserted row back by its key before delivering the insert, so a row already
+ * deleted is dropped, and the delete itself never passes the channel's institute filter (it carries only the key).
+ * Removing the flag at once made the probe a race that was lost for a minute or more. The flag is removed afterwards
+ * whatever happens.
  */
 async function realtimeJoined(app: AppContainer, client: DataClient): Promise<void> {
   const heard = vi.fn();
@@ -71,8 +76,8 @@ async function realtimeJoined(app: AppContainer, client: DataClient): Promise<vo
       // As the app writes face flags: insert-only (anon may insert and delete them, D-144).
       const written = await client.upsert('face_enrolment', { staff_id: TRAINER.id, enrolled_at: new Date().toISOString(), sample_count: 0, simulated: true }, 'staff_id', { ignoreDuplicates: true });
       if (!written.ok) throw new Error(`probe: ${written.error.kind}`);
-      await client.remove('face_enrolment', [eq('staff_id', TRAINER.id)]);
       await vi.waitFor(() => expect(heard).toHaveBeenCalled(), { timeout: 4_000, interval: 100 }).catch(() => undefined);
+      await client.remove('face_enrolment', [eq('staff_id', TRAINER.id)]);
     }
   } finally {
     stop();

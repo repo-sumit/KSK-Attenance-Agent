@@ -1,17 +1,18 @@
 'use client';
 import Link from 'next/link';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import { Banner } from '@/components/ui/Banner';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Icon } from '@/components/ui/icons/Icon';
 import { Latin } from '@/components/ui/Latin';
-import { Segmented } from '@/components/ui/Segmented';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { StatusChip } from '@/components/ui/StatusChip';
+import { StatusLine } from '@/components/ui/StatusLine';
 import { ScreenLayout } from '@/components/shell/ScreenLayout';
+import { TopBand } from '@/components/shell/TopBand';
 import { AppHeader } from '@/features/shell/AppHeader';
-import { awaitsSync, parseSessionKey, toSessionKey } from '@/domain/attendance';
+import { awaitsSync, parseSessionKey } from '@/domain/attendance';
 import { countMarks } from '@/domain/marking';
 import { AttendanceSummary } from '@/components/ui/AttendanceSummary';
 import { InlineNote } from '@/components/ui/InlineNote';
@@ -21,24 +22,20 @@ import { useSession } from '@/hooks/session';
 import { useQuery } from '@/hooks/useQuery';
 import { cx } from '@/lib/cx';
 import { routes } from '@/lib/routes';
-import { addDays, toLocalDate } from '@/lib/time';
+import { toLocalDate } from '@/lib/time';
 import { batchTitle, batchWithTrade, markLabel, statusOf, summaryLabels } from '../../common/labels';
+import { latinText } from '../../common/LatinText';
 import { useSessionLabel } from '../useSessionLabel';
 import styles from './Record.module.css';
 import { useAttendanceRoot } from '../useAttendanceRoot';
 
-/** Stands in for the submitter's name while the status sentence is filled, so the name can stay an element. */
-const NAME = '\u0000';
-
 /**
- * Read-only record of a submitted session. Instructors see the lock; the
- * principal can switch Today/Yesterday and tap a student to correct today's
- * record (only once it has synced).
+ * Read-only record of the session it was opened for (D-150). Instructors see the lock; with the correction right,
+ * today's synced record links each student to the correction. Another day's record (a typed URL) is read-only.
  */
 export function RecordScreen() {
   const { t, format } = useI18n();
   const root = useAttendanceRoot();
-  const router = useRouter();
   const ctx = useSession();
   const { attendance } = useServices();
   const label = useSessionLabel();
@@ -50,27 +47,10 @@ export function RecordScreen() {
 
   const isToday = address?.date === today;
   const canCorrect = ctx.journey.corrections && isToday;
-  const dailySlot = address?.slot.kind === 'daily';
-  const dayKey = (day: 'today' | 'yesterday') => (address ? toSessionKey({ ...address, date: day === 'today' ? today : addDays(today, -1) }) : key);
   const batch = ctx.data.batches.find((b) => b.id === address?.batchId);
   const trade = ctx.data.trades.find((x) => x.id === batch?.tradeId);
 
-  const header = <AppHeader back="back" title={trade?.name ?? t('common.loading')} subtitle={batch ? batchTitle(t, batch) : undefined} backHref={root.href} />;
-  const daySwitch =
-    ctx.journey.corrections && dailySlot ? (
-      <Segmented
-        label={t('record.sessions')}
-        size="sm"
-        fullWidth
-        value={isToday ? 'today' : 'yesterday'}
-        onChange={(d) => router.replace(routes.record(dayKey(d)))}
-        options={[
-          { value: 'today', label: t('common.today') },
-          { value: 'yesterday', label: t('common.yesterday') },
-        ]}
-      />
-    ) : null;
-
+  const header = <AppHeader back="back" title={trade ? <Latin>{trade.name}</Latin> : t('common.loading')} subtitle={batch ? batchTitle(t, batch) : undefined} backHref={root.href} />;
   if (loading && !detail) return <ScreenLayout area={root.area} width="reading" header={header}><Skeleton variant="rows" count={6} label={t('common.loading')} /></ScreenLayout>;
 
   const submission = detail?.submission;
@@ -78,13 +58,18 @@ export function RecordScreen() {
     // A past day with nothing submitted has no card: name the batch itself.
     const session = card ? [label(card).title, label(card).meta].filter(Boolean).join(' · ') : batch && trade ? batchWithTrade(t, trade, batch) : '';
     return (
-      <ScreenLayout area={root.area} width="reading" header={header} top={daySwitch ? <div className={styles.top}>{daySwitch}</div> : undefined}>
+      <ScreenLayout area={root.area} width="reading" header={header}>
         <EmptyState
           icon="clipboard-check"
           title={t('record.notSubmittedTitle')}
           body={isToday ? t('record.notSubmittedBody', { session }) : t('record.notSubmittedPast', { session, date: format.dayMonth(address?.date ?? today) })}
           action={
-            card?.canMark ? (
+            // Own attendance first (D-152): said as the rows say it, never a button that ends on the gateway's refusal.
+            card?.selfFirst ? (
+              <StatusLine tone="warning" icon="user-check">
+                {t('session.selfFirst')}
+              </StatusLine>
+            ) : card?.canMark ? (
               <Button size="md" href={routes.open(key)}>
                 {t('home.markAttendance')}
               </Button>
@@ -101,28 +86,16 @@ export function RecordScreen() {
   const synced = submission.syncState === 'synced';
   const by = ctx.data.staff.find((s) => s.id === submission.markedBy)?.name ?? '';
   const time = format.time(submission.deviceTimestamp);
-  // The name stands in as a slot so it alone is set as Latin master data; the sentence around it is translated text.
-  const statusText = rejected
+  // The submitter's name alone is set as Latin master data; the sentence around it is translated text.
+  const status = rejected
     ? t('sync.rejected')
     : pending
       ? t('record.pending')
       : !isToday
-        ? t('record.submittedOn', { date: format.dayMonth(submission.address.date), time, name: NAME })
+        ? latinText(t, 'record.submittedOn', { date: format.dayMonth(submission.address.date), time, name: by }, ['name'])
         : ctx.journey.corrections
-          ? t('record.submittedBy', { time, name: NAME })
+          ? latinText(t, 'record.submittedBy', { time, name: by }, ['name'])
           : t('record.submitted', { time });
-  const [before, after] = statusText.split(NAME);
-  const status = (
-    <>
-      {before}
-      {after !== undefined && (
-        <>
-          <Latin>{by}</Latin>
-          {after}
-        </>
-      )}
-    </>
-  );
   const note = rejected
     ? null
     : pending && ctx.journey.corrections
@@ -143,14 +116,20 @@ export function RecordScreen() {
       padding="none"
       header={header}
       top={
-        <div className={styles.top}>
-          {daySwitch}
-          <Banner layout="strip" tone={strip.tone} icon={strip.icon}>
-            {status}
-          </Banner>
-          <AttendanceSummary counts={counts} statuses={ctx.journey.marking.statuses} labels={summaryLabels(t, format)} />
+        // The status strip is the summary's lead: above the tiles on phones, beside them from 600px (D-069, D-159).
+        <TopBand>
+          <AttendanceSummary
+            counts={counts}
+            statuses={ctx.journey.marking.statuses}
+            labels={summaryLabels(t, format)}
+            lead={
+              <Banner layout="strip" tone={strip.tone} icon={strip.icon}>
+                {status}
+              </Banner>
+            }
+          />
           {note && <InlineNote>{note}</InlineNote>}
-        </div>
+        </TopBand>
       }
     >
       <ol className={styles.list}>
@@ -164,7 +143,7 @@ export function RecordScreen() {
                 <span className={styles.name}>
                   <Latin>{student.name}</Latin>
                 </span>
-                <span className={styles.father}>{t('roster.father', { name: student.fatherName })}</span>
+                <span className={styles.father}>{latinText(t, 'roster.father', { name: student.fatherName }, ['name'])}</span>
                 {isToday && detail.correctedStudentIds.has(student.id) && (
                   <span className={styles.corrected}>
                     <Icon name="history" size={12} />

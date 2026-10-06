@@ -3,13 +3,14 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExt
 import { useI18n } from '@/hooks/i18n';
 import { useContainer } from '@/hooks/services';
 import { useSession } from '@/hooks/session';
-import { VoiceContext, VoiceFocusContext, type VoiceApi } from '@/hooks/voice';
+import { VoiceContext, VoiceFocusContext, VoicePaceContext, type VoiceApi, type VoicePace } from '@/hooks/voice';
 import { audioSupported } from '@/services/voice/audio/types';
 import type { VoiceSession, VoiceState } from '@/services/voice/session';
 import { screenSignal, voiceFingerprint } from './screen-signal';
 import { useActionBus } from './useActionBus';
 import { VoiceAnnouncer } from './VoiceAnnouncer';
 import { ScreenSync } from './useScreenSync';
+import { VoiceErrorBoundary } from './VoiceErrorBoundary';
 import { VoiceFloat } from './VoiceFloat';
 
 /** Voice Agent is on from start() until the trainer stops it or the session ends itself (an error stays on, to explain). */
@@ -69,6 +70,14 @@ export function VoiceProvider({ children }: { readonly children: ReactNode }) {
     if (signal.kind !== 'home') started.onScreen(signal);
   }, [services, ctx, language]);
 
+  // the cap follows the simulation speed, as the screen's own holds do (useSimDelay): 0 in unit tests
+  const settle = useCallback(
+    (capMs: number, signal?: AbortSignal) => (session ? session.whenQuiet(capMs * simulation.get().speed, signal) : Promise.resolve()),
+    [session, simulation],
+  );
+  const live = state?.status === 'listening' || state?.status === 'speaking' || state?.status === 'working';
+  const pace = useMemo<VoicePace>(() => ({ live, settle }), [live, settle]);
+
   const api = useMemo<VoiceApi>(
     () => ({
       available,
@@ -82,8 +91,9 @@ export function VoiceProvider({ children }: { readonly children: ReactNode }) {
       reconnect: () => session?.reconnect(),
       setPushToTalk: (on) => session?.setPushToTalk(on),
       talk: (down) => session?.talk(down),
+      settle,
     }),
-    [available, marks, online, state, start, session],
+    [available, marks, online, state, start, session, settle],
   );
 
   useActionBus({ running: state !== null && state.status !== 'error', stop: api.stop });
@@ -100,14 +110,18 @@ export function VoiceProvider({ children }: { readonly children: ReactNode }) {
 
   return (
     <VoiceContext.Provider value={api}>
-      <VoiceFocusContext.Provider value={state?.focus ?? null}>
-        <Suspense fallback={null}>
-          <ScreenSync session={session} />
-        </Suspense>
-        <VoiceAnnouncer on={on} error={state?.error ?? null} />
-        {children}
-        <VoiceFloat />
-      </VoiceFocusContext.Provider>
+      <VoicePaceContext.Provider value={pace}>
+        <VoiceFocusContext.Provider value={state?.focus ?? null}>
+          <Suspense fallback={null}>
+            <ScreenSync session={session} />
+          </Suspense>
+          <VoiceAnnouncer on={on} error={state?.error ?? null} />
+          {children}
+          <VoiceErrorBoundary onError={api.stop}>
+            <VoiceFloat />
+          </VoiceErrorBoundary>
+        </VoiceFocusContext.Provider>
+      </VoicePaceContext.Provider>
     </VoiceContext.Provider>
   );
 }

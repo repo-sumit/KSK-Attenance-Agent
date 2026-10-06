@@ -1,18 +1,14 @@
-/* The fixed band: white with one divider, the same as the roster's and a record's. */
-.top {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-12);
-  padding: var(--space-12) var(--gutter-inline);
-  background: var(--color-background-surface-raised);
-  border-bottom: var(--divider-thin) solid var(--color-border-subtle);
-}
 .row {
   display: flex;
   flex-direction: column;
   gap: var(--space-12);
   padding: var(--space-12) var(--space-16);
   border-bottom: var(--divider-thin) solid var(--color-border-subtle);
+}
+/* The person Voice Agent asks about (D-156): an outline inside the row, no fill (rows are never tinted, D-070), as on the roster. */
+.current {
+  outline: var(--border-selected) solid var(--color-border-focus);
+  outline-offset: calc(0px - var(--border-selected));
 }
 .main {
   display: flex;

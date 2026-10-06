@@ -13,6 +13,12 @@
   align-items: center;
   gap: var(--space-8) var(--space-24);
 }
+/* One figure and its facts: the figure, then the facts beside it at any width (a long fact wraps in its column). */
+.withFacts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+}
 /* Two headline figures of equal weight (institute, staff): two equal columns. */
 .pair {
   display: grid;
@@ -48,7 +54,7 @@
 }
 .fact {
   display: inline-flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-8);
   font: var(--type-label-medium);
   letter-spacing: var(--ls-label-medium);
@@ -60,6 +66,12 @@
 }
 .error {
   color: var(--color-icon-error);
+}
+.info {
+  color: var(--color-text-info);
+}
+.warning {
+  color: var(--color-text-warning);
 }
 .muted {
   color: var(--color-icon-secondary);

@@ -9,11 +9,9 @@
  */
 import type { VoiceFlowState } from '@/domain/voice/flow';
 import { safeText, toModelStatus } from '@/domain/voice/types';
-import type { SessionCard } from '../attendance';
 import type { VerificationEvent, VerificationNeed } from '../verification';
-import type { ToolResult } from './tools';
 import {
-  byException, countsText, currentView, exceptionsText, markableNow, nothingOpen, openBatchInstruction, openDraft, openSessionIds, readSessions, readTrades,
+  byException, countsText, currentView, exceptionsText, openBatchInstruction, openDraft, readSessions, readTrades,
   selectedLabel, stepHint, studentOf, viewCounts, type VoiceView,
 } from './instructions';
 import { distanceText, first, nameText, sessionLabel, statusWords, word } from './labels';
@@ -26,43 +24,7 @@ export function freshStart(view: VoiceView): boolean {
   return step === 'IDLE' || step === 'SELECT_TRADE' || (step === 'SELECT_BATCH' && !view.plan.tradeStep);
 }
 
-/** Nothing can be marked: say so and ask what the trainer needs; voice stays open (D-142). */
-const WHAT_NEXT = 'say that in one line, then ask "What do you need?". Then wait.';
-
-export const hello = (languageName: string, greeting: string) =>
-  `Greet the trainer by first name in one short line in ${nameText(languageName)} ("${greeting}, <first name>.")`;
-
-/**
- * First message of a fresh connection, chosen by where the flow is (D-134): the trades to choose from, what can be marked
- * now with the ids to open it, or why nothing can be (then what the trainer needs: voice stays open, D-142); mid-flow it
- * re-reads the state. `greeting` comes from the clock
- * (greetingFor). With exactly one markable session the executor opens it itself and sends autoOpenEvent instead.
- * `board`: the trainer's sessions in every trade (with a trade step), so the trades read are those with one markable now.
- */
-export function sessionStartEvent(view: VoiceView, languageName: string, greeting: string, board?: readonly SessionCard[]): string {
-  if (!freshStart(view)) return '[APP] Session started again. Call get_status and continue from where we were.';
-  const greet = hello(languageName, greeting);
-  if (view.plan.tradeStep) {
-    // only the trades with something markable now (the whole board, when it loaded); with none, why nothing can be marked
-    const trades = board ? view.trades.filter((t) => board.some((c) => c.trade.id === t.id && markableNow(c))) : view.trades;
-    const none = board && !trades.length ? nothingOpen({ ...view, cards: board }) : null;
-    if (none) return `[APP] Session started. ${none} ${greet}, ${WHAT_NEXT}`;
-    return `[APP] Session started. ${greet}, then ask which trade, reading the trade names: ${trades.map((t) => nameText(t.name)).join(', ')}. No tool call is needed before the trainer answers. When the trainer names one, call select_trade.`;
-  }
-  const nothing = nothingOpen(view);
-  if (nothing) return `[APP] Session started. ${nothing} ${greet}, ${WHAT_NEXT}`;
-  // one open session: readSessions already gives its id
-  const ids = openSessionIds(view);
-  const idText = ids.length > 1 ? ` Their ids for select_batch: ${ids.join('; ')}.` : '';
-  return `[APP] Session started. ${greet}, then: ${readSessions(view)}${idText}`;
-}
-
-/** First message after the executor opened the only markable session itself (select_batch's own result follows the greeting). */
-export function autoOpenEvent(result: ToolResult, label: string, languageName: string, greeting: string): string {
-  // "do not call select_batch": live rehearsal, the model otherwise opened it a second time (one more round trip)
-  const how = result.ok ? 'so the app opened it: do not call select_batch for it' : 'but it cannot be opened';
-  return `[APP] Session started. Only ${label} can be marked now, ${how}. ${hello(languageName, greeting)}, then: ${result.instruction}`;
-}
+/** The first turn of a fresh session (the greeting, own attendance first, the trades or batches) is in ./kickoff. */
 
 /** After Reconnect: the conversation re-reads the state. */
 export const RECONNECT_EVENT = '[APP] Reconnected. Call get_status and continue from the current student.';
@@ -287,8 +249,8 @@ export function limitEvent(reason: 'session_limit' | 'daily_limit' | 'idle'): st
   return LIMITS[reason];
 }
 
-/** Use screen (voice design §9): the mic is off and the agent stays quiet until Resume. */
+/** Pause (voice design §9, once named Use screen): the mic is off and the agent stays quiet until Resume. */
 export const PAUSE_EVENT = '[APP] The trainer is using the screen. Say nothing until the next [APP] message.';
 
-/** Resume after Use screen: taps made meanwhile were not told, so the model re-reads the state. */
+/** Resume after Pause: taps made meanwhile were not told, so the model re-reads the state. */
 export const RESUME_EVENT = '[APP] The trainer is back. Call get_status and continue from the current student.';

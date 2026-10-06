@@ -87,16 +87,16 @@ describe('buildTools', () => {
   it('the principal (D-139): no marking tool, only today\'s state, reports, staff, the screens, announcements and the end', () => {
     const declared = buildTools(PRINCIPAL_PLAN);
     expect(declared.map((t) => t.name)).toEqual([
-      'get_status', 'get_reports_overview', 'get_batch_report', 'get_student_report', 'get_at_risk', 'show_report', 'download_register',
-      'get_staff_today', 'mark_staff', 'navigate', 'get_announcements', 'end_voice_session',
+      'get_status', 'get_reports_overview', 'get_batch_report', 'get_student_report', 'get_at_risk', 'get_staff_report', 'show_report', 'download_register',
+      'get_staff_today', 'mark_staff', 'mark_remaining_staff', 'navigate', 'get_announcements', 'end_voice_session',
     ]);
     expect(declared.every((t) => t.behavior === 'BLOCKING')).toBe(true);
     const nav = declared.find((t) => t.name === 'navigate')!;
-    expect(nav.parameters!.properties.to.enum).toEqual(['home', 'attendance', 'reports', 'staff_attendance', 'announcements']);
-    expect(nav.description).toBe('Open a screen the trainer asks for: Home, Attendance, Reports, Staff attendance or Announcements.');
+    expect(nav.parameters!.properties.to.enum).toEqual(['home', 'attendance', 'reports', 'offline', 'staff_attendance', 'announcements']);
+    expect(nav.description).toBe('Open a screen the trainer asks for: Home, Attendance, Reports, Offline data, Staff attendance or Announcements.');
     expect(declared.find((t) => t.name === 'get_status')!.description).toMatch(/^Today's attendance at the institute/);
     expect(JSON.stringify(declared)).not.toMatch(/select_batch|select_trade|get_trades|mark_my_attendance/);
-    expect(declared.filter((t) => JSON.stringify(t).includes('confirm_token')).map((t) => t.name)).toEqual(['mark_staff']); // the one write asks first
+    expect(declared.filter((t) => JSON.stringify(t).includes('confirm_token')).map((t) => t.name)).toEqual(['mark_staff', 'mark_remaining_staff']); // the writes ask first
   });
   it('own and staff attendance (D-141): declared only with their capability; mark_staff takes the person, a state status and a code', () => {
     const own = buildTools(voicePlan(PLAN)).map((t) => t.name);
@@ -134,31 +134,51 @@ describe('buildTools', () => {
     expect(JSON.stringify(reportNames.map(report))).not.toMatch(/confirm_token/);
   });
   it('report tools follow the report sections the screen has: batches, at-risk, the institute headline', () => {
-    const declared = (reportSections: { batches: boolean; atRisk: boolean; institute: boolean }, downloads = reportSections.batches) =>
-      buildTools(voicePlan(PLAN, { ...CAPS, reportSections, downloads })).map((t) => t.name).filter((n) => /report|at_risk|register/.test(n));
+    const declared = (sections: { batches: boolean; atRisk: boolean; institute: boolean }, downloads = sections.batches) =>
+      buildTools(voicePlan(PLAN, { ...CAPS, reportSections: { ...sections, staff: false }, downloads })).map((t) => t.name).filter((n) => /report|at_risk|register/.test(n));
     expect(declared({ batches: true, atRisk: true, institute: false })).toEqual(['get_reports_overview', 'get_batch_report', 'get_student_report', 'get_at_risk', 'show_report', 'download_register']);
     expect(declared({ batches: true, atRisk: false, institute: false })).toEqual(['get_reports_overview', 'get_batch_report', 'get_student_report', 'show_report', 'download_register']);
     expect(declared({ batches: false, atRisk: true, institute: false })).toEqual(['get_student_report', 'get_at_risk', 'show_report']);
-    const principal = (reportSections: { batches: boolean; atRisk: boolean; institute: boolean }) =>
-      buildTools({ ...PRINCIPAL_PLAN, capabilities: { ...PRINCIPAL_PLAN.capabilities, reportSections, downloads: reportSections.batches } });
+    const principal = (sections: { batches: boolean; atRisk: boolean; institute: boolean; staff?: boolean }) => {
+      const reportSections = { staff: false, ...sections };
+      return buildTools({ ...PRINCIPAL_PLAN, capabilities: { ...PRINCIPAL_PLAN.capabilities, reportSections, downloads: reportSections.batches || reportSections.staff } });
+    };
     const headline = principal({ batches: true, atRisk: true, institute: true }).find((t) => t.name === 'get_reports_overview')!;
     expect(headline.description).toContain("with the institute's average and staff presence");
     const noHeadline = principal({ batches: true, atRisk: true, institute: false }).find((t) => t.name === 'get_reports_overview')!;
     expect(noHeadline.description).toContain('every batch of the institute');
     expect(noHeadline.description).not.toContain("institute's average");
     expect(principal({ batches: false, atRisk: false, institute: true }).map((t) => t.name).filter((n) => /report|at_risk|register/.test(n))).toEqual(['get_reports_overview', 'show_report']);
+    // the staff section (D-156): get_staff_report, this month's staff figure in the headline, the staff register
+    const staff = principal({ batches: true, atRisk: true, institute: true, staff: true });
+    expect(staff.map((t) => t.name).filter((n) => /report|at_risk|register/.test(n))).toEqual([
+      'get_reports_overview', 'get_batch_report', 'get_student_report', 'get_at_risk', 'get_staff_report', 'show_report', 'download_register',
+    ]);
+    expect(staff.find((t) => t.name === 'get_reports_overview')!.description).toContain("with the institute's average and this month's staff attendance");
+    expect(staff.find((t) => t.name === 'get_staff_report')!.description).toBe(
+      'This month\'s staff attendance report: the institute\'s staff attendance %, the five lowest staff with their %, how many are below the threshold and how many are not marked today. Use it for "how is staff attendance this month?", "staff ki attendance kaisi hai?".',
+    );
+    const register = staff.find((t) => t.name === 'download_register')!;
+    expect(register.description).toBe('Open the monthly attendance register on the screen, ready to download, for one batch or a whole trade, or all staff, this month or last month. The trainer then taps Download.');
+    expect(register.parameters!.properties.target.description).toBe('Batch id or spoken batch label ("Electrician shift 1 unit 2"), or a trade name for the whole trade\'s register, or "staff" for the staff register');
+    // the staff section alone: only the staff register
+    const staffOnly = principal({ batches: false, atRisk: false, institute: false, staff: true });
+    expect(staffOnly.map((t) => t.name).filter((n) => /report|at_risk|register/.test(n))).toEqual(['get_staff_report', 'show_report', 'download_register']);
+    expect(staffOnly.find((t) => t.name === 'download_register')!.parameters!.properties.target.description).toBe('"staff" for the staff register');
+    // an instructor's register keeps its words (tuned live)
+    expect(tool(PLAN, 'download_register').description).toBe('Open the monthly attendance register on the screen, ready to download, for one batch or a whole trade, this month or last month. The trainer then taps Download.');
   });
   it('get_reports_overview\'s description names students at risk only with the at-risk section (fix round 1)', () => {
-    const overview = (reportSections: { batches: boolean; atRisk: boolean; institute: boolean }) =>
-      buildTools(voicePlan(PLAN, { ...CAPS, reportSections })).find((t) => t.name === 'get_reports_overview')!.description;
+    const overview = (sections: { batches: boolean; atRisk: boolean; institute: boolean }) =>
+      buildTools(voicePlan(PLAN, { ...CAPS, reportSections: { ...sections, staff: false } })).find((t) => t.name === 'get_reports_overview')!.description;
     expect(overview({ batches: true, atRisk: true, institute: false })).toBe(
       'The attendance report of the trainer\'s batches: each batch\'s average over the report window, students at risk, this month against last month. Use it for "how are my batches doing?", "report batao", "how is the institute doing?".',
     );
     expect(overview({ batches: true, atRisk: false, institute: false })).toBe(
       'The attendance report of the trainer\'s batches: each batch\'s average over the report window, this month against last month. Use it for "how are my batches doing?", "report batao", "how is the institute doing?".',
     );
-    const principal = (reportSections: { batches: boolean; atRisk: boolean; institute: boolean }) =>
-      buildTools({ ...PRINCIPAL_PLAN, capabilities: { ...PRINCIPAL_PLAN.capabilities, reportSections, downloads: reportSections.batches } }).find((t) => t.name === 'get_reports_overview')!.description;
+    const principal = (sections: { batches: boolean; atRisk: boolean; institute: boolean }) =>
+      buildTools({ ...PRINCIPAL_PLAN, capabilities: { ...PRINCIPAL_PLAN.capabilities, reportSections: { ...sections, staff: false }, downloads: sections.batches } }).find((t) => t.name === 'get_reports_overview')!.description;
     expect(principal({ batches: true, atRisk: true, institute: true })).toMatch(/students at risk/);
     expect(principal({ batches: true, atRisk: false, institute: true })).not.toMatch(/at risk/);
     expect(principal({ batches: false, atRisk: false, institute: true })).not.toMatch(/at risk|each batch's average/);

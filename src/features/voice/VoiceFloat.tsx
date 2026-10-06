@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react';
-import { preconnect } from 'react-dom';
-import { useDockAnchor } from '@/components/shell/DockAnchor';
+import { createPortal, preconnect } from 'react-dom';
+import { useDockInset } from '@/components/shell/DockInset';
 import { Icon } from '@/components/ui/icons/Icon';
 import { useI18n } from '@/hooks/i18n';
 import { useServices } from '@/hooks/services';
@@ -9,6 +9,7 @@ import { useVoice } from '@/hooks/voice';
 import { cx } from '@/lib/cx';
 import { GEMINI_LIVE_ORIGIN } from '@/services/voice/live/origin';
 import { VoiceCard } from './VoiceCard';
+import { useCardRest } from './useCardRest';
 import { dockStatus } from './VoiceDockParts';
 import styles from './VoiceFloat.module.css';
 
@@ -17,34 +18,29 @@ type Mode = 'button' | 'card';
 /** The voice services whose start-up was already prefetched: once per page load (one container per page load). */
 const prefetched = new WeakSet<object>();
 
-/** Where the float sits, measured from the screen's dock anchor (DockAnchor): CSS variables read by the stylesheet. */
-interface Place {
-  readonly left: number;
-  readonly right: number;
-  readonly bottom: number;
-  readonly width: number;
-}
-
 /**
- * Voice Agent's one floating element (D-133), rendered once by VoiceProvider so it keeps its state across routes.
- * Idle: a round mic button at the bottom-right (an extended "Voice Agent" pill from 600px), shown while voice is
- * available; the tap starts voice synchronously, inside the click, so the session creates its AudioContexts there.
- * While voice runs it grows into the voice card; Minimize shrinks the card back to a round button that shows the
- * live status (its name is the status text) while voice keeps running, and a tap opens the card again. An error
- * always opens the card (voice has stopped: Reconnect or Stop voice). `<html data-voice-float>` tells the screens to
- * reserve room for it, so it never covers a row, the Submit button or the bottom navigation.
+ * Voice Agent's one floating element (D-133, D-147), rendered once by VoiceProvider so it keeps its state across
+ * routes, and portaled to <body>: one viewport overlay that never changes a screen's layout. Idle: a round mic button
+ * at the bottom-right corner (an extended "Voice Agent" pill from 1136px), shown while voice is available; the tap
+ * starts voice synchronously, inside the click, so the session creates its AudioContexts there. While voice runs it
+ * grows into the voice card from the same corner; Minimize shrinks the card back to a round button there that shows
+ * the live status (its name is the status text) while voice keeps running, and a tap opens the card again. An error
+ * always opens the card (voice has stopped: Reconnect or Stop voice). Idle, the open card yields the screen: it rests as
+ * the mini button by itself and opens again when the agent speaks or the status needs the trainer (useCardRest, R7);
+ * a manual Minimize stays until the mini button is tapped. It sits just above the screen's pinned footer
+ * and bottom navigation (DockInset), so it never covers a primary action; `<html data-voice-float>` gives the screens
+ * scroll room, so every row can scroll clear of it.
  */
 export function VoiceFloat() {
   const voice = useVoice();
   const voiceService = useServices().voice;
   const { t } = useI18n();
-  const anchor = useDockAnchor();
   const hintId = useId();
   const showId = useId();
   const [minimized, setMinimized] = useState(false);
   const [open, setOpen] = useState(false);
-  const [place, setPlace] = useState<Place | null>(null);
-  const floatRef = useRef<HTMLDivElement>(null);
+  const [float, setFloat] = useState<HTMLDivElement | null>(null);
+  const dock = useDockInset(float);
   const miniRef = useRef<HTMLButtonElement>(null);
   const minimizeRef = useRef<HTMLButtonElement>(null);
   const cardRef = useRef<HTMLElement>(null);
@@ -52,7 +48,8 @@ export function VoiceFloat() {
 
   const state = voice.state;
   const error = state?.status === 'error';
-  const showMini = state !== null && minimized && !error;
+  const rest = useCardRest(state, state !== null && !minimized && !error, float, () => setOpen(false));
+  const showMini = state !== null && (minimized || rest.rested) && !error;
   const showCard = state !== null && !showMini;
   const showButton = state === null && voice.available;
   const mode: Mode | null = showCard ? 'card' : showMini || showButton ? 'button' : null;
@@ -96,7 +93,7 @@ export function VoiceFloat() {
     }
   });
 
-  // <html data-voice-float> lets every screen reserve room for the float (tokens.css, VoiceFloat.module.css).
+  // <html data-voice-float> gives every screen scroll room for the float (tokens.css, VoiceFloat.module.css).
   useLayoutEffect(() => {
     if (!mode) return;
     const root = document.documentElement;
@@ -104,34 +101,19 @@ export function VoiceFloat() {
     return () => root.removeAttribute('data-voice-float');
   }, [mode]);
 
-  // Measure the float (its height is the room screens reserve) and the dock anchor (where the float sits).
+  // Measure the float: its height is the scroll room screens keep (and the toast's lift).
   useLayoutEffect(() => {
-    if (!mode) return;
+    if (!float) return;
     const root = document.documentElement;
-    const measure = () => {
-      const el = floatRef.current;
-      if (el) root.style.setProperty('--voice-float-height', `${Math.ceil(el.getBoundingClientRect().height)}px`);
-      if (!anchor || !anchor.isConnected) return setPlace(null);
-      const r = anchor.getBoundingClientRect();
-      setPlace((prev) => {
-        const next = { left: r.left, right: window.innerWidth - r.right, bottom: window.innerHeight - r.bottom, width: r.width };
-        return prev && prev.left === next.left && prev.right === next.right && prev.bottom === next.bottom && prev.width === next.width ? prev : next;
-      });
-    };
+    const measure = () => root.style.setProperty('--voice-float-height', `${Math.ceil(float.getBoundingClientRect().height)}px`);
     measure();
-    // The anchor moves without resizing when its dock changes below it (a footer or the bottom navigation mounting
-    // after the screen's data loads), so the dock itself is watched too.
     const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
-    if (observer && floatRef.current) observer.observe(floatRef.current);
-    if (observer && anchor) observer.observe(anchor);
-    if (observer && anchor?.parentElement) observer.observe(anchor.parentElement);
-    window.addEventListener('resize', measure);
+    observer?.observe(float);
     return () => {
       observer?.disconnect();
-      window.removeEventListener('resize', measure);
       root.style.removeProperty('--voice-float-height');
     };
-  }, [mode, anchor]);
+  }, [float]);
 
   if (!mode) return null;
 
@@ -142,6 +124,7 @@ export function VoiceFloat() {
   const expand = () => {
     focusNext.current = 'minimize';
     setMinimized(false);
+    rest.wake();
   };
   const startVoice = (event: MouseEvent<HTMLButtonElement>) => {
     if (event.detail > 1) return; // a double tap starts voice once
@@ -149,13 +132,11 @@ export function VoiceFloat() {
     voice.start();
   };
 
-  const vars = (place
-    ? { '--float-left': `${place.left}px`, '--float-right': `${place.right}px`, '--float-bottom': `${place.bottom}px`, '--float-width': `${place.width}px` }
-    : {}) as CSSProperties;
+  const vars = { '--float-dock': `${dock}px` } as CSSProperties;
   const look = state ? dockStatus(state) : null;
 
-  return (
-    <div ref={floatRef} className={cx(styles.float, mode === 'card' ? styles.asCard : styles.asButton)} style={vars} data-voice-float={mode}>
+  return createPortal(
+    <div ref={setFloat} className={cx(styles.float, mode === 'card' && styles.asCard)} style={vars} data-voice-float={mode} {...rest.handlers}>
       {showButton && (
         <>
           <button type="button" className={styles.fab} aria-describedby={hintId} aria-disabled={voice.online ? undefined : 'true'} onClick={startVoice}>
@@ -181,6 +162,7 @@ export function VoiceFloat() {
         </>
       )}
       {showCard && <VoiceCard open={open} onOpenChange={setOpen} onMinimize={minimize} minimizeRef={minimizeRef} cardRef={cardRef} />}
-    </div>
+    </div>,
+    document.body,
   );
 }

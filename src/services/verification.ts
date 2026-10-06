@@ -10,6 +10,7 @@
  */
 import type { LocationStep } from '@/config/journey';
 import type { SessionKey } from '@/domain/attendance';
+import { canReuseSelfPass } from '@/domain/rules';
 import { err, ok, type Result } from '@/lib/result';
 import { toLocalDate } from '@/lib/time';
 import type { VerificationPass, VerificationRepository } from '@/repositories/interfaces';
@@ -148,15 +149,45 @@ export class VerificationService {
   }
 
   async grant(ctx: SessionContext, purpose: VerificationPurpose, location?: LocationCheck): Promise<Result<VerificationPass, never>> {
+    const { location: step, face } = ctx.journey.verification;
     const pass: VerificationPass = {
       staffId: ctx.user.id,
       purpose: purposeKey(purpose),
       date: toLocalDate(ctx.clock.now()),
       grantedAt: ctx.clock.now().toISOString(),
+      checks: { location: step, face },
       ...(location ? { location: location.location } : {}),
     };
     await this.passes.grant(pass);
     this.emit({ type: 'granted', purpose: purposeKey(purpose) });
     return ok(pass);
+  }
+
+  /**
+   * One check, not two (D-152, amends D-028): a batch's check is passed by the trainer's own (self) check from today
+   * when it is no older than verification.selfPassReuseMinutes and covered every check this batch needs now. The
+   * session pass is then stored (with the self check's location, so the submission carries it) and announced like any
+   * other. False when it does not apply: the batch runs its own check. Only for a user whose journey has own
+   * attendance (the principal's checks stay as they were). A pass is never authority on its own: openRoster and
+   * submit still check own attendance first, the window and access.
+   */
+  async reuseSelfPass(ctx: SessionContext, purpose: VerificationPurpose): Promise<boolean> {
+    if (purpose.kind !== 'session' || !ctx.journey.verification.required || !ctx.journey.staff.selfCard) return false;
+    const now = ctx.clock.now();
+    const today = toLocalDate(now);
+    const self = await this.passes.find(ctx.user.id, purposeKey({ kind: 'self' }), today);
+    const { location: step, face } = ctx.journey.verification;
+    const minutes = ctx.config.verification.selfPassReuseMinutes;
+    if (!self || !canReuseSelfPass({ pass: self, needs: { location: step, face }, now, today, minutes })) return false;
+    await this.passes.grant({
+      staffId: ctx.user.id,
+      purpose: purposeKey(purpose),
+      date: today,
+      grantedAt: now.toISOString(),
+      ...(self.checks ? { checks: self.checks } : {}),
+      ...(self.location ? { location: self.location } : {}),
+    });
+    this.emit({ type: 'granted', purpose: purposeKey(purpose) });
+    return true;
   }
 }

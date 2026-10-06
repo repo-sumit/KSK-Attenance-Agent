@@ -14,79 +14,34 @@ import {
   type SessionAddress,
   type SessionKey,
 } from '@/domain/attendance';
-import type { Batch, Student, Trade } from '@/domain/entities';
-import { countMarks, initialMarks, isMarkAllowed, type MarkCounts } from '@/domain/marking';
-import { checkSubmission, type SubmitError } from '@/domain/rules';
+import type { Batch, Trade } from '@/domain/entities';
+import { countMarks, initialMarks, isMarkAllowed } from '@/domain/marking';
+import { checkSelfFirst, checkSubmission, type SubmitError } from '@/domain/rules';
 import { sameSlot, slotsForBatch, windowState, type ScheduledSlot, type WindowState } from '@/domain/schedule';
 import { marksEqual, type Mark } from '@/domain/status';
 import type { MarkSource } from '@/domain/voice/types';
 import { createId } from '@/lib/ids';
 import { err, ok, type Result } from '@/lib/result';
 import { addDays, compareDates, toLocalDate, type LocalDate } from '@/lib/time';
-import type { AttendanceRepository, BatchPackRepository, CorrectionRepository, OfflineQueueRepository, VerificationRepository } from '@/repositories/interfaces';
+import type {
+  AttendanceRepository,
+  BatchPackRepository,
+  CorrectionRepository,
+  OfflineQueueRepository,
+  StaffAttendanceRepository,
+  VerificationRepository,
+} from '@/repositories/interfaces';
+import type { BatchGroup, OpenRosterError, RosterData, SessionCard, SessionDetail, SessionStatus, SubmissionSummary } from './attendance-types';
 import type { SessionContext } from './context';
 
-export type SessionStatus = 'open' | 'future' | 'closed' | 'submitted';
-
-export interface SubmissionSummary {
-  readonly id: string;
-  readonly at: string;
-  readonly byName: string;
-  /** Locked on this phone and still on its way to the server (pending or failed). */
-  readonly pendingSync: boolean;
-  /** The server refused this phone's copy for good: someone else submitted the session first (shown only while the server's copy cannot be read). */
-  readonly rejected: boolean;
-  readonly counts: MarkCounts;
-}
-
-export interface SessionCard {
-  readonly key: SessionKey;
-  readonly address: SessionAddress;
-  readonly batch: Batch;
-  readonly trade: Trade;
-  readonly scheduled: ScheduledSlot;
-  readonly status: SessionStatus;
-  readonly studentCount: number;
-  readonly submission?: SubmissionSummary;
-  /** Whether this user may open the roster now (status open + access + role rules). */
-  readonly canMark: boolean;
-  /** The roster is on this phone (a batch pack), so it can be opened offline. */
-  readonly downloaded: boolean;
-  /** When the pack was last downloaded or refreshed, and whether that is past the refresh interval. */
-  readonly pack?: { readonly downloadedAt: string; readonly stale: boolean };
-}
-
-export interface BatchGroup {
-  readonly trade: Trade;
-  readonly cards: readonly SessionCard[];
-}
-
-export interface SessionDetail {
-  readonly card: SessionCard;
-  readonly students: readonly Student[];
-  readonly submission?: AttendanceSubmission;
-  /** Marks after corrections; the original submission is never changed. */
-  readonly marks: Readonly<Record<string, Mark>>;
-  readonly correctedStudentIds: ReadonlySet<string>;
-}
-
-export type OpenRosterError = 'unknown_session' | 'no_access' | 'not_today' | 'window_not_open' | 'window_closed' | 'already_submitted' | 'not_verified' | 'not_downloaded' | 'needs_connection';
-
-export interface RosterData {
-  readonly card: SessionCard;
-  readonly students: readonly Student[];
-  readonly marks: Record<string, Mark>;
-  /** Who made each saved trainer mark that is still valid (D-084); defaults and presets have none. */
-  readonly sources?: Readonly<Record<string, MarkSource>>;
-  /** Offline with a pack past its refresh interval: still usable, flagged (PRD §20.3). */
-  readonly packStale: boolean;
-  readonly packDownloadedAt?: string;
-}
+export type { BatchGroup, OpenRosterError, RosterData, SessionCard, SessionDetail, SessionStatus, SubmissionSummary } from './attendance-types';
 
 export interface AttendanceDeps {
   readonly attendance: AttendanceRepository;
   readonly corrections: CorrectionRepository;
   readonly verification: VerificationRepository;
+  /** Staff records, read for own attendance first (D-152). */
+  readonly staffAttendance: StaffAttendanceRepository;
   readonly offlineQueue: OfflineQueueRepository;
   readonly packs: BatchPackRepository;
   readonly isOnline: () => boolean;
@@ -102,6 +57,16 @@ export class AttendanceService {
 
   private today(ctx: SessionContext): LocalDate {
     return toLocalDate(ctx.clock.now());
+  }
+
+  /**
+   * Own attendance first (D-152): true while journey.staff.selfFirst holds and this user has no staff record today
+   * (a principal's mark counts). Read once per call; users without the rule never read the records.
+   */
+  private async selfFirstBlocks(ctx: SessionContext): Promise<boolean> {
+    if (!ctx.journey.staff.selfFirst) return false;
+    const own = await this.deps.staffAttendance.get(ctx.user.id, this.today(ctx));
+    return !checkSelfFirst({ required: true, ownRecordToday: own }).ok;
   }
 
   private trade(ctx: SessionContext, batch: Batch): Trade {
@@ -136,13 +101,14 @@ export class AttendanceService {
     return pack ? { downloaded: true, pack: { downloadedAt: pack.downloadedAt, stale: this.deps.isPackStale(pack.downloadedAt) } } : { downloaded: false };
   }
 
-  private async card(ctx: SessionContext, batch: Batch, scheduled: ScheduledSlot, subjectId: string | undefined): Promise<SessionCard> {
+  private async card(ctx: SessionContext, batch: Batch, scheduled: ScheduledSlot, subjectId: string | undefined, selfFirst: boolean): Promise<SessionCard> {
     const address: SessionAddress = { batchId: batch.id, date: this.today(ctx), slot: scheduled.slot, ...(subjectId ? { subjectId } : {}) };
     const key = toSessionKey(address);
     const submission = await this.deps.attendance.getSubmission(key);
     const state: WindowState = windowState(scheduled.window, ctx.clock.now());
     const status: SessionStatus = submission ? 'submitted' : state;
     const allowed = ctx.journey.isPrincipal ? ctx.journey.principalCanMarkStudents : canMarkBatch(ctx.access, batch.id);
+    const canMark = status === 'open' && allowed;
     return {
       key,
       address,
@@ -152,13 +118,19 @@ export class AttendanceService {
       status,
       studentCount: ctx.data.students.filter((s) => s.batchId === batch.id).length,
       submission: await this.summarize(ctx, submission),
-      canMark: status === 'open' && allowed,
+      canMark,
+      ...(canMark && selfFirst ? { selfFirst: true } : {}),
       ...(await this.packInfo(batch.id)),
     };
   }
 
   /** Every session this user sees for one batch today. */
   async cardsForBatch(ctx: SessionContext, batchId: string): Promise<SessionCard[]> {
+    return this.batchCards(ctx, batchId, await this.selfFirstBlocks(ctx));
+  }
+
+  /** cardsForBatch with the own-attendance answer already read once for a whole board (D-152). */
+  private async batchCards(ctx: SessionContext, batchId: string, blocks: boolean): Promise<SessionCard[]> {
     const batch = ctx.data.batches.find((b) => b.id === batchId);
     if (!batch) return [];
     const subjects: Array<string | undefined> = ctx.journey.isPrincipal ? [undefined, ...this.subjectsForBatch(ctx, batchId)] : [ctx.access.subjectId];
@@ -166,7 +138,7 @@ export class AttendanceService {
     const cards: SessionCard[] = [];
     for (const subjectId of subjects) {
       const slots = slotsForBatch({ batch, institute: ctx.institute, date: this.today(ctx), config: ctx.config, timetable: ctx.data.timetable, subjectId, instructorId });
-      for (const scheduled of slots) cards.push(await this.card(ctx, batch, scheduled, subjectId));
+      for (const scheduled of slots) cards.push(await this.card(ctx, batch, scheduled, subjectId, blocks));
     }
     return cards;
   }
@@ -174,18 +146,20 @@ export class AttendanceService {
   /** Batches of one trade (trade picker, trade switcher, group-instructor and principal views). */
   async boardForTrade(ctx: SessionContext, tradeId: string): Promise<SessionCard[]> {
     const batches = ctx.data.batches.filter((b) => b.tradeId === tradeId && (ctx.journey.isPrincipal || ctx.access.batchIds.has(b.id) || ctx.access.tradeWideViewTradeId === tradeId));
-    const cards = await Promise.all(batches.map((b) => this.cardsForBatch(ctx, b.id)));
+    const blocks = await this.selfFirstBlocks(ctx);
+    const cards = await Promise.all(batches.map((b) => this.batchCards(ctx, b.id, blocks)));
     return cards.flat();
   }
 
   /** A fixed list of the user's batches, grouped by trade (batch_list selection). */
   async myBoard(ctx: SessionContext): Promise<BatchGroup[]> {
     const groups: BatchGroup[] = [];
+    const blocks = await this.selfFirstBlocks(ctx);
     for (const tradeId of ctx.access.tradeIds) {
       const trade = ctx.data.trades.find((t) => t.id === tradeId);
       if (!trade) continue;
       const batches = ctx.data.batches.filter((b) => b.tradeId === tradeId && ctx.access.batchIds.has(b.id));
-      const cards = (await Promise.all(batches.map((b) => this.cardsForBatch(ctx, b.id)))).flat();
+      const cards = (await Promise.all(batches.map((b) => this.batchCards(ctx, b.id, blocks)))).flat();
       if (cards.length) groups.push({ trade, cards });
     }
     return groups;
@@ -194,11 +168,12 @@ export class AttendanceService {
   /** Today's timetabled periods for this instructor, in time order (timetable selection). */
   async timetableBoard(ctx: SessionContext): Promise<SessionCard[]> {
     const cards: SessionCard[] = [];
+    const blocks = await this.selfFirstBlocks(ctx);
     for (const entry of ctx.access.timetable) {
       const batch = ctx.data.batches.find((b) => b.id === entry.batchId);
       if (!batch) continue;
       const scheduled: ScheduledSlot = { slot: { kind: 'period', periodNo: entry.periodNo }, window: ctx.config.time.fencing ? entry.window : null, timetableEntry: entry };
-      cards.push(await this.card(ctx, batch, scheduled, entry.subjectId));
+      cards.push(await this.card(ctx, batch, scheduled, entry.subjectId, blocks));
     }
     return cards;
   }
@@ -275,6 +250,7 @@ export class AttendanceService {
     if (card.status === 'future') return err('window_not_open');
     if (card.status === 'closed') return err('window_closed');
     if (!card.canMark) return err('no_access');
+    if (card.selfFirst) return err('self_first');
     const packs = await this.deps.packs.list();
     const pack = packs.find((p) => p.batchId === card.batch.id);
     if (!this.deps.isOnline()) {
@@ -341,6 +317,9 @@ export class AttendanceService {
       marks,
       rosterIds: ctx.data.students.filter((s) => s.batchId === card.batch.id).map((s) => s.id),
       config: ctx.config,
+      // The card already carries the answer from this call's one read of the own record (D-152). A card it blocks is
+      // open and markable; a blocked one that is not is refused above, by the window, access or submit-once checks.
+      selfFirst: { required: Boolean(card.selfFirst), ownRecordToday: undefined },
     });
     if (!check.ok) return check;
     await this.deps.delay?.(500);

@@ -1,33 +1,22 @@
 /*
- * Voice Agent's floating element (D-133): the round mic button (an extended pill from 600px), the minimized status
- * button and the voice card. Fixed at the bottom-right of the screen's content column, just above its footer and
- * bottom navigation: VoiceFloat measures the screen's dock anchor (DockAnchor) into the --float-* variables; the
- * defaults below are the viewport's corner, used before a screen has mounted. Above the screens, under menus, sheets,
- * toasts and the demo panel (--z-voice).
+ * Voice Agent's floating element (D-133, D-147): the round mic button (an extended pill from 1136px), the minimized
+ * status button and the voice card. One viewport overlay (portaled to <body>): all three share the bottom-right corner,
+ * --float-inset from the viewport's edges, lifted by the screen's pinned footer and bottom navigation (--float-dock,
+ * measured by DockInset) and by the floating demo pill (--demo-reserve-block-end). Nothing follows a screen's content
+ * column, so it sits at the same place on every screen. Above the screens, under menus, sheets, toasts and the demo
+ * panel (--z-voice).
  */
 .float {
-  --float-left: var(--space-16);
-  --float-right: var(--space-16);
-  --float-bottom: calc(var(--space-16) + env(safe-area-inset-bottom));
-  --float-width: calc(100vw - 2 * var(--space-16));
+  --float-inset: var(--space-16);
   position: fixed;
   z-index: var(--z-voice);
-  bottom: var(--float-bottom);
-  right: var(--float-right);
+  right: calc(env(safe-area-inset-right) + var(--float-inset));
+  bottom: calc(var(--float-dock, 0px) + var(--float-inset) + var(--demo-reserve-block-end));
+  transition: bottom var(--motion-base) var(--motion-ease);
 }
-/* The button floats 16px above the dock's top, over the scroller's bottom-right corner (screens keep scroll room). */
-.asButton {
-  bottom: calc(var(--float-bottom) + var(--space-16));
-}
-/* Phones: the anchor's slim margin is for the card; the button keeps the DS page margin from the edge. */
-@media (max-width: 599px) {
-  .asButton {
-    right: calc(var(--float-right) + var(--space-8));
-  }
-}
-/* Phones: the card spans the content column; it sits in the band ScreenLayout reserves above the footer. */
+/* Phones: the card spans the viewport between the corner insets. */
 .asCard {
-  left: var(--float-left);
+  left: calc(env(safe-area-inset-left) + var(--float-inset));
 }
 
 .fab {
@@ -86,6 +75,9 @@
   color: var(--mini-text);
   --mini-ring: var(--color-icon-secondary);
   --mini-text: var(--color-text-secondary);
+  /* It appears at the corner the card shrank into (a Minimize, or the card resting by itself, R7). */
+  transform-origin: bottom right;
+  animation: voice-mini-in var(--motion-base) var(--motion-ease);
 }
 .mini[data-tone='success'] {
   --mini-ring: var(--color-icon-success);
@@ -108,12 +100,32 @@
 }
 
 @media (min-width: 600px) {
-  /* The card keeps its own width at the column's right edge. */
+  .float {
+    --float-inset: var(--space-24);
+  }
+  /* The card keeps its own width at the corner. */
   .asCard {
     left: auto;
-    width: min(var(--overlay-width-voice), var(--float-width));
+    width: var(--overlay-width-voice);
+    max-width: calc(100vw - 2 * var(--float-inset));
   }
-  /* The idle button becomes an extended pill with its text. */
+  /* The open demo drawer (the demo panel sets html[data-demo-drawer]): the widget moves left of it. */
+  :global(html[data-demo-drawer]) .float {
+    right: calc(env(safe-area-inset-right) + var(--overlay-width-drawer) + var(--float-inset));
+  }
+  /*
+   * The card never squeezes beside it: where the room left of the drawer is narrower than the card (600 to ~790px), the
+   * card keeps its own width and overlaps the drawer's left edge, its right edge clamped so it stays on screen.
+   */
+  :global(html[data-demo-drawer]) .asCard {
+    right: min(
+      calc(env(safe-area-inset-right) + var(--overlay-width-drawer) + var(--float-inset)),
+      calc(100vw - var(--overlay-width-voice) - var(--float-inset))
+    );
+  }
+}
+/* The idle button becomes an extended pill with its text once the corner sits in the page's wide right margin. */
+@media (min-width: 1136px) {
   .fab:not(.mini) {
     padding: 0 var(--space-20);
   }
@@ -127,22 +139,35 @@
 }
 
 /*
- * Room the screens reserve while the float shows (html[data-voice-float] outranks the :root defaults in tokens.css,
- * whatever the stylesheet order). The button: scroll room at the bottom of the scroller, so the last row can scroll
- * clear of it. The card: a band of its height above the footer and bottom navigation (ScreenLayout's dock anchor),
- * so it never covers a row or the Submit button.
+ * Scroll room the screens keep while the float shows, the button and the card alike (html[data-voice-float] outranks
+ * the :root defaults in tokens.css, whatever the stylesheet order): the float's height plus its gaps, so every row can
+ * scroll clear of it. The float never takes layout space: main is the same height with the button and with the card.
  */
 @media all {
-  :global(html[data-voice-float='button']) {
-    --voice-reserve-block-end: calc(var(--voice-float-height) + var(--space-24));
+  :global(html[data-voice-float]) {
+    --voice-reserve-block-end: calc(var(--voice-float-height) + var(--space-24) + var(--space-8));
+    /* The resting card's room, the same with the button and the card (inline-footer screens, ScreenLayout). */
+    --voice-reserve-resting: calc(var(--overlay-height-voice) + var(--space-24) + var(--space-8));
   }
-  :global(html[data-voice-float='card']) {
-    --voice-space: var(--voice-float-height);
+}
+
+@keyframes voice-mini-in {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: none;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .float,
   .fab {
     transition: none;
+  }
+  .mini {
+    animation: none;
   }
 }

@@ -18,6 +18,7 @@ import type { Announcement } from '@/domain/announcement';
 import type { BatchPack, FaceEnrolment } from '@/domain/device';
 import type { BatchId, Institute, InstituteId, MasterData, StaffId, StaffMember, Student } from '@/domain/entities';
 import type { Language } from '@/config/types';
+import type { PassChecks } from '@/domain/rules';
 import type { Result } from '@/lib/result';
 import type { LocalDate } from '@/lib/time';
 
@@ -86,6 +87,8 @@ export interface VerificationPass {
   readonly date: LocalDate;
   readonly grantedAt: string;
   readonly location?: { readonly lat: number; readonly lng: number; readonly accuracyM: number; readonly distanceM?: number };
+  /** The checks this pass covered (D-152). A pass stored before this field existed is never reused for a batch. */
+  readonly checks?: PassChecks;
 }
 
 export interface VerificationRepository {

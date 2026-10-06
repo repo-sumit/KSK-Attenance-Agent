@@ -47,4 +47,10 @@ describe('toolCallOrder (MVP-05 §3.6)', () => {
     expect(out[1]).toBe(input[0]);
     expect(toolCallOrder([])).toEqual([]);
   });
+  it('a mark_remaining_staff sent before mark_staff calls runs after the last of them, so a person named with another status is marked first (D-156)', () => {
+    expect(names(toolCallOrder(calls('mark_remaining_staff', 'mark_staff', 'get_staff_today', 'mark_staff')))).toEqual(['mark_staff', 'get_staff_today', 'mark_staff', 'mark_remaining_staff']);
+    expect(names(toolCallOrder(calls('mark_staff', 'mark_remaining_staff')))).toEqual(['mark_staff', 'mark_remaining_staff']);
+    // the two rules are separate: the students' bulk call never moves for a staff call, nor the staff one for a student call
+    expect(names(toolCallOrder(calls('mark_remaining', 'mark_staff', 'mark_remaining_staff', 'set_student_status')))).toEqual(['mark_staff', 'mark_remaining_staff', 'set_student_status', 'mark_remaining']);
+  });
 });

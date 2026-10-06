@@ -87,7 +87,7 @@ describe('compileVoicePlan (D-139): the marking plan beside the capabilities', (
     expect(p.scope).toBe('instructor');
     expect(p.marking).toEqual(plan('st-rajesh'));
     expect(p.capabilities).toEqual({
-      selfAttendance: true, reports: 'instructor', reportSections: { batches: true, atRisk: true, institute: false }, staffMarking: false, staffStatuses: [],
+      selfAttendance: true, reports: 'instructor', reportSections: { batches: true, atRisk: true, institute: false, staff: false }, staffMarking: false, staffStatuses: [],
       announcements: true, downloads: true, navTargets: ['home', 'reports', 'my_attendance', 'offline', 'announcements'],
     });
     expect(p).toMatchObject({ languages: ['en', 'mr'], openingLanguage: 'en' });
@@ -97,8 +97,8 @@ describe('compileVoicePlan (D-139): the marking plan beside the capabilities', (
     expect(p.scope).toBe('institute');
     expect(p.marking).toBeNull();
     expect(p.capabilities).toEqual({
-      selfAttendance: false, reports: 'institute', reportSections: { batches: true, atRisk: true, institute: true }, staffMarking: true,
-      staffStatuses: ['present', 'absent'], announcements: true, downloads: true, navTargets: ['home', 'attendance', 'reports', 'staff_attendance', 'announcements'],
+      selfAttendance: false, reports: 'institute', reportSections: { batches: true, atRisk: true, institute: true, staff: true }, staffMarking: true,
+      staffStatuses: ['present', 'absent'], announcements: true, downloads: true, navTargets: ['home', 'attendance', 'reports', 'offline', 'staff_attendance', 'announcements'],
     });
     expect(p.openingLanguage).toBe('mr');
   });
@@ -118,15 +118,20 @@ describe('compileVoicePlan (D-139): the marking plan beside the capabilities', (
     const blocks = (staffId: string, list: string[], pdfDownload = true) =>
       voicePlan(staffId, { reports: { blocks: list as never, pdfDownload } })!.capabilities;
     // no student_percentage: no at-risk answers
-    expect(blocks('st-rajesh', ['my_attendance', 'my_batches'])).toMatchObject({ reports: 'instructor', reportSections: { batches: true, atRisk: false, institute: false }, downloads: true });
+    expect(blocks('st-rajesh', ['my_attendance', 'my_batches'])).toMatchObject({ reports: 'instructor', reportSections: { batches: true, atRisk: false, institute: false, staff: false }, downloads: true });
     // no batches section: no batch answers and no register download (its sheet opens from the batches section)
-    expect(blocks('st-rajesh', ['my_attendance', 'student_percentage'])).toMatchObject({ reports: 'instructor', reportSections: { batches: false, atRisk: true, institute: false }, downloads: false });
+    expect(blocks('st-rajesh', ['my_attendance', 'student_percentage'])).toMatchObject({ reports: 'instructor', reportSections: { batches: false, atRisk: true, institute: false, staff: false }, downloads: false });
     // only own attendance: nothing for the report tools to answer from
-    expect(blocks('st-rajesh', ['my_attendance'])).toMatchObject({ reports: null, reportSections: { batches: false, atRisk: false, institute: false }, downloads: false });
+    expect(blocks('st-rajesh', ['my_attendance'])).toMatchObject({ reports: null, reportSections: { batches: false, atRisk: false, institute: false, staff: false }, downloads: false });
+    // an instructor never has the staff section, even with the block listed (it needs the principal's staff view)
+    expect(blocks('st-rajesh', ['my_batches', 'staff_summary'])).toMatchObject({ reportSections: { staff: false } });
     // the principal: trade_batch counts as the batches section; no institute_summary, no institute headline
-    expect(blocks('st-anil', ['trade_batch', 'student_percentage', 'staff_summary'])).toMatchObject({ reports: 'institute', reportSections: { batches: true, atRisk: true, institute: false }, downloads: true });
-    expect(blocks('st-anil', ['institute_summary', 'staff_summary'])).toMatchObject({ reports: 'institute', reportSections: { batches: false, atRisk: false, institute: true }, downloads: false });
-    expect(blocks('st-anil', ['staff_summary', 'correction_log'])).toMatchObject({ reports: null, downloads: false });
+    expect(blocks('st-anil', ['trade_batch', 'student_percentage', 'staff_summary'])).toMatchObject({ reports: 'institute', reportSections: { batches: true, atRisk: true, institute: false, staff: true }, downloads: true });
+    // the staff section is a section voice answers from (D-156), and its staff register is a download
+    expect(blocks('st-anil', ['institute_summary', 'staff_summary'])).toMatchObject({ reports: 'institute', reportSections: { batches: false, atRisk: false, institute: true, staff: true }, downloads: true });
+    expect(blocks('st-anil', ['staff_summary', 'correction_log'])).toMatchObject({ reports: 'institute', reportSections: { batches: false, atRisk: false, institute: false, staff: true }, downloads: true });
+    expect(blocks('st-anil', ['staff_summary', 'correction_log'], false).downloads).toBe(false);
+    expect(voicePlan('st-anil', { staff: { enabled: false } })!.capabilities.reportSections.staff).toBe(false);
     expect(blocks('st-rajesh', ['my_batches', 'student_percentage'], false).downloads).toBe(false);
   });
 });

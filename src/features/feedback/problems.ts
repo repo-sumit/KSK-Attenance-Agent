@@ -28,6 +28,7 @@ export type ProblemKind =
   | 'noPack'
   | 'noConnection'
   | 'noAccess'
+  | 'selfFirst'
   | 'notFound';
 
 export const PROBLEMS: Readonly<Record<ProblemKind, { tone: Tone; icon: IconName; title: MessageKey; body: MessageKey }>> = {
@@ -55,5 +56,6 @@ export const PROBLEMS: Readonly<Record<ProblemKind, { tone: Tone; icon: IconName
   noPack: { tone: 'warning', icon: 'wifi-off', title: 'problem.noPackTitle', body: 'problem.noPackBody' },
   noConnection: { tone: 'warning', icon: 'wifi-off', title: 'problem.noConnectionTitle', body: 'problem.noConnectionBody' },
   noAccess: { tone: 'neutral', icon: 'lock', title: 'problem.noAccessTitle', body: 'problem.noAccessBody' },
+  selfFirst: { tone: 'warning', icon: 'user-check', title: 'selfFirst.title', body: 'selfFirst.body' },
   notFound: { tone: 'neutral', icon: 'info', title: 'problem.notFoundTitle', body: 'problem.notFoundBody' },
 };

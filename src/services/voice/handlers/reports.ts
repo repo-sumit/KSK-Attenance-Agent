@@ -19,6 +19,7 @@ import {
 } from '../report-texts';
 import type { ToolResult } from '../tools';
 import { fail, str, type BaseDeps, type BaseHandler, type ReportFocus } from './base';
+import { instituteHeadline, namesStaffRegister, openStaffRegister } from './staff-report';
 
 type Found<T> = { readonly ok: true; readonly value: T } | { readonly ok: false; readonly result: ToolResult };
 
@@ -92,13 +93,12 @@ export const getReportsOverview: BaseHandler = async (h) => {
   const sections = deps.voice.capabilities.reportSections;
   const scope = await scopeOf(deps);
   const ids = scope.batches.map((b) => b.batch.id);
-  const [[thisMonth, lastMonth], summary] = await Promise.all([monthRegisters(deps, ids), sections.institute ? deps.reports.instituteSummary(deps.ctx) : null]);
+  const [[thisMonth, lastMonth], headline] = await Promise.all([monthRegisters(deps, ids), sections.institute ? instituteHeadline(deps) : null]);
   const batches: BatchLine[] = !sections.batches ? [] : scope.batches.map((b) => ({
     id: b.batch.id, label: labelOf(b), students: b.students, avg_pct: b.pct, ...(sections.atRisk ? { at_risk: b.atRisk } : {}),
     this_month_pct: batchMonth(thisMonth, b.batch.id), last_month_pct: batchMonth(lastMonth, b.batch.id),
   }));
   const atRiskTotal = sections.atRisk ? scope.batches.reduce((a, b) => a + b.atRisk, 0) : null;
-  const headline = summary && { avg_pct: summary.pct, students: summary.students, batches: summary.batches, staff_pct: summary.staffPct };
   const months = { this_month_pct: scopeMonth(thisMonth), last_month_pct: scopeMonth(lastMonth) };
   h.state.report = { kind: 'overview' };
   return {
@@ -215,6 +215,7 @@ export const showReport: BaseHandler = async (h) => {
   h.navigate(routes.reports, false);
   if (focus?.kind === 'batch') h.deps.bus.emit({ type: 'show_batch_report', batchId: focus.batchId });
   if (focus?.kind === 'at_risk') h.deps.bus.emit({ type: 'show_at_risk' });
+  if (focus?.kind === 'staff') h.deps.bus.emit({ type: 'show_staff_report' });
   const then = await h.afterNavigate();
   return { ok: true, instruction: `${focus ? SHOWN_REPORT : 'The Reports screen is open. Say so in a few words.'}${then}` };
 };
@@ -252,11 +253,12 @@ export const downloadRegister: BaseHandler = async (h, args) => {
   const which = str(args.month).toUpperCase() || 'THIS_MONTH';
   const index = MONTHS.indexOf(which as (typeof MONTHS)[number]);
   if (index < 0) return fail('INVALID', 'The register is for this month or last month. Ask which.');
+  const month = deps.reports.registerMonths(deps.ctx)[index];
+  const monthName = `${MONTH_YEAR.format(instantAt(month, '12:00'))}${index === 0 ? ' (so far)' : ''}`;
+  if (namesStaffRegister(h, str(args.target))) return openStaffRegister(h, month, monthName);
   const scope = await scopeOf(deps);
   const target = findTarget(str(args.target), scope);
   if (!target.ok) return target.result;
-  const month = deps.reports.registerMonths(deps.ctx)[index];
-  const monthName = `${MONTH_YEAR.format(instantAt(month, '12:00'))}${index === 0 ? ' (so far)' : ''}`;
   h.navigate(routes.reports, false);
   deps.bus.emit({ type: 'open_register', batchIds: target.value.batchIds, tradeId: target.value.tradeId, month });
   const then = await h.afterNavigate();

@@ -161,36 +161,3 @@
   flex-direction: column;
   gap: var(--space-8);
 }
-/* A native select where the options are too long for a segmented track (the voice model). */
-.selectField {
-  position: relative;
-  display: flex;
-}
-.select {
-  flex: 1;
-  min-width: 0;
-  min-height: var(--touch-target-min);
-  margin: 0;
-  padding: 0 calc(var(--space-12) + 20px + var(--space-8)) 0 var(--space-16);
-  border: var(--border-selected) solid var(--color-border-default);
-  border-radius: var(--radius-full);
-  background: var(--color-background-surface-raised);
-  color: var(--color-text-primary);
-  font: var(--type-label-medium);
-  letter-spacing: 0;
-  text-overflow: ellipsis;
-  appearance: none;
-  cursor: pointer;
-}
-.select:focus-visible {
-  outline: 2px solid var(--color-interactive-focus);
-  outline-offset: 2px;
-}
-.selectIcon {
-  position: absolute;
-  top: 50%;
-  right: var(--space-12);
-  transform: translateY(-50%);
-  color: var(--color-icon-secondary);
-  pointer-events: none;
-}

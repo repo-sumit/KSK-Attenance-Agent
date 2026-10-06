@@ -302,7 +302,7 @@ describe('VoiceSession', () => {
     expect(h.transport.texts.at(-1)).toBe('[APP] The trainer is back from the screen.');
   });
 
-  it('Use screen pauses (mic off, stream end, quiet line); Resume continues; 20 s hidden pauses', async () => {
+  it('Pause (mic off, stream end, quiet line); Resume continues; 20 s hidden pauses', async () => {
     const { h, s } = await live();
     s.pause();
     expect(s.getState().status).toBe('paused');

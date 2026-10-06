@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const PORT = 3200;
+// E2E_PORT lets several working copies run the suite side by side; the default stays 3200.
+const PORT = Number(process.env.E2E_PORT ?? 3200);
 
 export default defineConfig({
   testDir: 'tests/e2e',

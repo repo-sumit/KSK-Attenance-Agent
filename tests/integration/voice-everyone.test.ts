@@ -39,13 +39,13 @@ async function todayOf(s: Awaited<ReturnType<typeof voiceFor>>) {
 const NO_CHECK: ConfigLayer = { verification: { geoMode: 'off', face: false } };
 
 describe('voice for the principal (D-139): no batch flow, today\'s state, the screens', () => {
-  it('kickoff: one line with today\'s state, then "What do you need?" and wait', async () => {
+  it('kickoff: the greeting by the salutation, one line with today\'s state, then "How can I help?" and wait', async () => {
     const s = await voiceFor('PR-2741');
     expect(s.plan.marking).toBeNull();
     const t = await todayOf(s);
     expect(t.total).toBeGreaterThan(0);
     expect(await s.ex.kickoff('start', 'English')).toBe(
-      `[APP] Session started. Today: ${t.submitted} of ${t.total} batches submitted, ${t.unmarked} staff not marked yet. Greet the trainer by first name in one short line in English ("Good morning, <first name>."), then say today's state in one line, then ask "What do you need?". Then wait.`,
+      `[APP] Session started. Today: ${t.submitted} of ${t.total} batches submitted, ${t.unmarked} staff not marked yet, the principal included. Say exactly: "Good morning, Principal." Then say today's state in one line, in English (for example "${t.submitted} of ${t.total} batches are in; ${t.unmarked} staff haven't marked yet, including you."), then ask "How can I help?". Then wait.`,
     );
     expect(s.nav()).toEqual([]); // nothing is opened
   });
@@ -55,9 +55,9 @@ describe('voice for the principal (D-139): no batch flow, today\'s state, the sc
     const rows = await s.env.app.services.staffAttendance.day(s.ctx);
     const saved = await s.env.app.services.staffAttendance.markByPrincipal(s.ctx, rows.filter((r) => !r.record).map((r) => ({ staffId: r.member.id, status: 'present' })));
     expect(saved.ok).toBe(true);
-    expect(await s.ex.kickoff('start', 'English')).toMatch(/batches submitted, every staff member marked\. Greet/);
+    expect(await s.ex.kickoff('start', 'English')).toMatch(/batches submitted, every staff member marked\. Say exactly/);
     const noStaff = await voiceFor('PR-2741', { staff: { enabled: false } });
-    expect(await noStaff.ex.kickoff('start', 'English')).toMatch(/^\[APP\] Session started\. Today: \d+ of \d+ batches submitted\. Greet/);
+    expect(await noStaff.ex.kickoff('start', 'English')).toMatch(/^\[APP\] Session started\. Today: \d+ of \d+ batches submitted\. Say exactly/);
   });
 
   it('get_status answers with today\'s numbers; the marking tools do not exist', async () => {
@@ -65,7 +65,7 @@ describe('voice for the principal (D-139): no batch flow, today\'s state, the sc
     const t = await todayOf(s);
     const status = await s.call('get_status');
     expect(status).toMatchObject({ ok: true, batches_submitted: t.submitted, batches_total: t.total, staff_not_marked: t.unmarked });
-    expect(status.instruction).toBe(`Today: ${t.submitted} of ${t.total} batches submitted, ${t.unmarked} staff not marked yet. Answer the trainer in one short line from these numbers.`);
+    expect(status.instruction).toBe(`Today: ${t.submitted} of ${t.total} batches submitted, ${t.unmarked} staff not marked yet, the principal included. Answer the trainer in one short line from these numbers.`);
     for (const name of ['select_batch', 'get_trades', 'submit_attendance', 'set_student_status', 'mark_remaining']) {
       expect(await s.call(name, { batch: 'shift 1 unit 2' })).toMatchObject({ ok: false, error: 'UNKNOWN_TOOL' });
     }
@@ -76,11 +76,13 @@ describe('voice for the principal (D-139): no batch flow, today\'s state, the sc
     expect(await s.call('navigate', { to: 'staff_attendance' })).toMatchObject({ ok: true, screen: 'staff_attendance', instruction: 'The Staff attendance screen is open. Say so in a few words.' });
     expect(await s.call('navigate', { to: 'Attendance' })).toMatchObject({ ok: true, screen: 'attendance' });
     expect(await s.call('navigate', { to: 'reports' })).toMatchObject({ ok: true });
-    expect(s.nav()).toEqual(['/attendance/staff', '/attendance', '/reports']);
+    // Offline for every user (D-153): the principal's Offline data screen.
+    expect(await s.call('navigate', { to: 'offline' })).toMatchObject({ ok: true, screen: 'offline' });
+    expect(s.nav()).toEqual(['/attendance/staff', '/attendance', '/reports', '/reports/offline']);
     expect(await s.call('navigate', { to: 'my_attendance' })).toMatchObject({
-      ok: false, error: 'INVALID', instruction: 'There is no "my_attendance" screen. The screens are Home, Attendance, Reports, Staff attendance and Announcements.',
+      ok: false, error: 'INVALID', instruction: 'There is no "my_attendance" screen. The screens are Home, Attendance, Reports, Offline data, Staff attendance and Announcements.',
     });
-    expect(s.nav()).toHaveLength(3);
+    expect(s.nav()).toHaveLength(4);
   });
 
   it('the hooks for taps, screens and verification say nothing; a refresh and a reconnect re-read today', async () => {
@@ -90,16 +92,16 @@ describe('voice for the principal (D-139): no batch flow, today\'s state, the sc
     expect(await s.ex.onVerification({ type: 'granted', purpose: 'session:x' })).toBeNull();
     expect(s.ex.onDraftChange({ key: 'k', kind: 'mark', via: 'tap', studentIds: ['a'], after: undefined } as never)).toBeNull();
     const t = await todayOf(s);
-    expect(await s.ex.refresh(null)).toBe(`[APP] The connection was refreshed; trust these facts over your memory. Today: ${t.submitted} of ${t.total} batches submitted, ${t.unmarked} staff not marked yet. Wait for the trainer.`);
+    expect(await s.ex.refresh(null)).toBe(`[APP] The connection was refreshed; trust these facts over your memory. Today: ${t.submitted} of ${t.total} batches submitted, ${t.unmarked} staff not marked yet, the principal included. Wait for the trainer.`);
     expect(await s.ex.refresh('Ask whether to open the notices.', 'any notices')).toBe(
-      `[APP] The connection was refreshed; trust these facts over your memory. Today: ${t.submitted} of ${t.total} batches submitted, ${t.unmarked} staff not marked yet. The trainer last said: "any notices" (already handled: do not act on it again). Your last question to the trainer was lost in the refresh: ask it again now, then wait. Its instruction was: Ask whether to open the notices.`,
+      `[APP] The connection was refreshed; trust these facts over your memory. Today: ${t.submitted} of ${t.total} batches submitted, ${t.unmarked} staff not marked yet, the principal included. The trainer last said: "any notices" (already handled: do not act on it again). Your last question to the trainer was lost in the refresh: ask it again now, then wait. Its instruction was: Ask whether to open the notices.`,
     );
     // spoken facts, never "say nothing": telling the model to stay silent made it skip its next reply (refreshEvent)
     expect(await s.ex.kickoff('reconnect', 'English')).toBe('[APP] Reconnected. Call get_status and say today\'s state in one short line, then wait for the trainer.');
     expect(s.ex.flow().step).toBe('IDLE');
   });
 
-  it('Resume after Use screen: the principal is told the trainer is back and to wait, with no student to continue from', async () => {
+  it('Resume after Pause: the principal is told the trainer is back and to wait, with no student to continue from', async () => {
     const s = await voiceFor('PR-2741');
     expect(s.ex.resumeText()).toBe('[APP] The trainer is back from the screen. Say in a few words that you are listening, then wait for their request. Do not read out today\'s numbers unless they ask.');
     expect(s.ex.resumeText()).not.toMatch(/student/);

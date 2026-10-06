@@ -14,13 +14,15 @@ export type ToolName =
   | 'get_trades' | 'select_trade' | 'select_batch' | 'start_roll_call' | 'mark_attendance' | 'set_student_status'
   | 'skip_student' | 'mark_remaining' | 'go_back' | 'get_status' | 'verify_again' | 'navigate' | 'get_announcements'
   | 'get_reports_overview' | 'get_batch_report' | 'get_student_report' | 'get_at_risk' | 'show_report' | 'download_register'
-  | 'get_my_attendance' | 'mark_my_attendance' | 'get_staff_today' | 'mark_staff' | 'submit_attendance' | 'end_voice_session';
+  | 'get_my_attendance' | 'mark_my_attendance' | 'get_staff_today' | 'mark_staff' | 'mark_remaining_staff' | 'get_staff_report'
+  | 'submit_attendance' | 'end_voice_session';
 
 export const TOOL_NAMES: readonly ToolName[] = [
   'get_trades', 'select_trade', 'select_batch', 'start_roll_call', 'mark_attendance', 'set_student_status',
   'skip_student', 'mark_remaining', 'go_back', 'get_status', 'verify_again', 'navigate', 'get_announcements',
   'get_reports_overview', 'get_batch_report', 'get_student_report', 'get_at_risk', 'show_report', 'download_register',
-  'get_my_attendance', 'mark_my_attendance', 'get_staff_today', 'mark_staff', 'submit_attendance', 'end_voice_session',
+  'get_my_attendance', 'mark_my_attendance', 'get_staff_today', 'mark_staff', 'mark_remaining_staff', 'get_staff_report',
+  'submit_attendance', 'end_voice_session',
 ];
 
 export interface ToolParam { readonly type: 'STRING' | 'INTEGER'; readonly description: string; readonly enum?: readonly string[] }
@@ -66,6 +68,13 @@ function capabilityTools(voice: VoicePlan): { navigate: ToolDeclaration; announc
   };
 }
 
+/** What download_register's target names: a batch or a trade (the batches section), "staff" (the staff section, D-156). */
+function registerTarget(sections: VoicePlan['capabilities']['reportSections']): string {
+  const batch = 'Batch id or spoken batch label ("Electrician shift 1 unit 2"), or a trade name for the whole trade\'s register';
+  if (!sections.staff) return batch;
+  return sections.batches ? `${batch}, or "staff" for the staff register` : '"staff" for the staff register';
+}
+
 /**
  * The report tools (D-140), with reports on: read-only figures the app works out, and show_report for the screen.
  * Each answer tool only with the Reports section it answers from (the batches, the at-risk students, the institute
@@ -76,7 +85,8 @@ function reportTools(voice: VoicePlan): (ToolDeclaration | false)[] {
   if (!scope) return [];
   const sections = voice.capabilities.reportSections;
   const batch: ToolParam = { type: 'STRING', description: 'Batch id from a report result, or the spoken label such as "Electrician shift 1 unit 2"' };
-  const headline = sections.institute ? ', with the institute\'s average and staff presence' : '';
+  const staffFigure = sections.staff ? 'this month\'s staff attendance' : 'staff presence';
+  const headline = sections.institute ? `, with the institute's average and ${staffFigure}` : '';
   const mine = scope === 'institute' ? `every batch of the institute${headline}` : 'the trainer\'s batches';
   // the overview's parts as the screen has them: no batch averages without the batches, no at-risk without that section
   const overview = [sections.batches && 'each batch\'s average over the report window', sections.atRisk && 'students at risk', 'this month against last month'];
@@ -103,12 +113,16 @@ function reportTools(voice: VoicePlan): (ToolDeclaration | false)[] {
       'Students at risk of not being eligible: below the attendance threshold over the report window, lowest first. Use it for "kaun at risk hai?", "who may not be eligible?". Without a batch: every batch.',
       obj({ batch: { ...batch, description: `Only when the trainer names the batch. ${batch.description}` } }, []),
     ),
+    sections.staff && tool(
+      'get_staff_report',
+      'This month\'s staff attendance report: the institute\'s staff attendance %, the five lowest staff with their %, how many are below the threshold and how many are not marked today. Use it for "how is staff attendance this month?", "staff ki attendance kaisi hai?".',
+    ),
     tool('show_report', 'Show on the screen the report you just answered from. Call it only after the trainer said yes to seeing it.'),
     voice.capabilities.downloads && tool(
       'download_register',
-      'Open the monthly attendance register on the screen, ready to download, for one batch or a whole trade, this month or last month. The trainer then taps Download.',
+      `Open the monthly attendance register on the screen, ready to download, for ${[sections.batches && 'one batch or a whole trade', sections.staff && 'all staff'].filter(Boolean).join(', or ')}, this month or last month. The trainer then taps Download.`,
       obj({
-        target: { type: 'STRING', description: 'Batch id or spoken batch label ("Electrician shift 1 unit 2"), or a trade name for the whole trade\'s register' },
+        target: { type: 'STRING', description: registerTarget(sections) },
         month: { type: 'STRING', enum: ['THIS_MONTH', 'LAST_MONTH'], description: 'Which month: this month (to date; the default when the trainer does not say) or last month' },
       }, ['target']),
     ),
@@ -133,16 +147,24 @@ function attendanceTools(voice: VoicePlan): (ToolDeclaration | false)[] {
     ),
     caps.staffMarking && tool(
       'get_staff_today',
-      'Staff attendance today: how many staff are marked, by status, and who is not marked yet (at most five named). Use it for "staff ki hajeri", "who has not marked attendance?".',
+      'Staff attendance today: how many staff are marked, by status, and who is not marked yet (at most five named, "you" first for the principal). Use it for "staff ki hajeri", "who has not marked attendance?".',
     ),
     caps.staffMarking && codes.length > 0 && tool(
       'mark_staff',
-      'Mark one staff member who has no attendance today. Returns NEEDS_CONFIRMATION first; call again with the confirm_token only after a clear yes. A mark the person made themselves is never changed.',
+      'Mark one staff member who has no attendance today, the principal included ("mark me present": staff "me"). Returns NEEDS_CONFIRMATION first; call again with the confirm_token only after a clear yes. A mark the person made themselves is never changed.',
       obj({
-        staff: { type: 'STRING', description: 'The staff member\'s name as spoken' },
+        staff: { type: 'STRING', description: 'The staff member\'s name as spoken, or "me" for the principal themselves' },
         status: { type: 'STRING', enum: codes, description: `Attendance status: ${codes.join(', ')}` },
         confirm_token: CONFIRM_TOKEN,
       }, ['staff', 'status']),
+    ),
+    caps.staffMarking && codes.length > 0 && tool(
+      'mark_remaining_staff',
+      'Mark every staff member not marked yet today with one status ("mark everyone else present", "baaki sab staff present"). For "everyone present except Pradeep" first mark Pradeep with mark_staff, then call this. Returns NEEDS_CONFIRMATION first; call again with the confirm_token only after a clear yes.',
+      obj({
+        status: { type: 'STRING', enum: codes, description: `Attendance status: ${codes.join(', ')}` },
+        confirm_token: CONFIRM_TOKEN,
+      }, ['status']),
     ),
   ];
 }

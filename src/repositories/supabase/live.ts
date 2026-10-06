@@ -29,6 +29,7 @@ export class SupabaseLive {
   private current: { readonly instituteId: string; readonly stop: () => void } | undefined;
   private readonly changed = new Set<LiveTable>();
   private timer: ReturnType<typeof setTimeout> | undefined;
+  private disposed = false;
 
   constructor(private readonly deps: { readonly client: DataClient; readonly bus: EventBus; readonly cache: ServerReadCache; readonly debounceMs?: number }) {}
 
@@ -38,6 +39,7 @@ export class SupabaseLive {
   }
 
   follow(instituteId: string | undefined): void {
+    if (this.disposed) instituteId = undefined;
     if (this.current?.instituteId === instituteId) return;
     this.current?.stop();
     this.current = undefined;
@@ -51,6 +53,12 @@ export class SupabaseLive {
       if (isLiveTable(table)) this.onChange(table);
     });
     this.current = { instituteId, stop };
+  }
+
+  /** Ends the subscription for good: the container was disposed (D-158), so a late session read follows nothing. */
+  dispose(): void {
+    this.disposed = true;
+    this.follow(undefined);
   }
 
   private onChange(table: LiveTable): void {

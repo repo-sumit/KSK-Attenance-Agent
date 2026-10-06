@@ -1,3 +1,4 @@
+// @refresh reset
 'use client';
 import dynamic from 'next/dynamic';
 import { useEffect, useState, type ReactNode } from 'react';
@@ -13,16 +14,26 @@ import { bootApp, type AppRuntime } from './boot';
 const DemoRoot =
   process.env.NEXT_PUBLIC_DEMO_MODE === 'true' ? dynamic(() => import('@/demo/ui/DemoRoot').then((m) => m.DemoRoot), { ssr: false }) : null;
 
-/** Client composition root: boots the container once, then mounts the providers. */
+/**
+ * Client composition root: boots the container once, then mounts the providers. The effect's cleanup disposes the
+ * container it booted, also one that resolves after the cleanup (D-158): Strict Mode boots twice in dev, and
+ * `@refresh reset` (first line) remounts this component when Fast Refresh re-runs this module, which happens on any
+ * edit in services, repositories, config or domain, so a services edit rebuilds the container instead of keeping
+ * the old instances. Component-only edits keep normal Fast Refresh.
+ */
 export function AppProviders({ children }: { readonly children: ReactNode }) {
   const [runtime, setRuntime] = useState<AppRuntime | null>(null);
   useEffect(() => {
     let alive = true;
+    let booted: AppRuntime | null = null;
     void bootApp().then((r) => {
-      if (alive) setRuntime(r);
+      if (!alive) return r.container.dispose();
+      booted = r;
+      setRuntime(r);
     });
     return () => {
       alive = false;
+      booted?.container.dispose();
     };
   }, []);
 

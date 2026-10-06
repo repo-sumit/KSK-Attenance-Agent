@@ -20,7 +20,7 @@ import { buildSeed } from '@/data/mock/seeds';
 import type { StoredSession, VerificationPass } from '../interfaces';
 
 /** Bump when the stored shape changes, so old demo state is discarded instead of misread. */
-const SCHEMA_VERSION = 2;
+const SCHEMA_VERSION = 3; // 3: today's seeded submissions come from self-marked submitters (U2)
 
 export interface Collections {
   submissions: Record<string, AttendanceSubmission>;

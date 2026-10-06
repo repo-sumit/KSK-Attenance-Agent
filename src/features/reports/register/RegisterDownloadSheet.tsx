@@ -14,14 +14,19 @@ import { isEmbeddedWebView } from '@/lib/platform';
 import { startOfMonth, toLocalDate, type LocalDate } from '@/lib/time';
 import { brandLogo } from './brandLogo';
 import { registerDocument, registerFileName, type RegisterDocumentOptions } from './registerDocument';
+import { staffRegisterDocument, staffRegisterFileName } from './staffRegisterDocument';
 import styles from './RegisterDownloadSheet.module.css';
 
-/** What a register is downloaded for: one batch, or a trade's batches in the list it was opened from. */
+/** One batch, a trade's batches, or every staff member of the institute (the staff register, D-154). */
+export type RegisterScope = RegisterDocumentOptions['scope'] | { readonly kind: 'staff' };
+
+/** What a register is downloaded for: one batch, a trade's batches in the list it was opened from, or the staff. */
 export interface RegisterTarget {
+  /** Empty for the staff register. */
   readonly batchIds: readonly string[];
-  /** The sheet's subtitle: "Electrician · Shift 1 · Unit 2", or the trade's name. */
+  /** The sheet's subtitle: "Electrician · Shift 1 · Unit 2", the trade's name, or "All staff · {institute}". */
   readonly subject: string;
-  readonly scope: RegisterDocumentOptions['scope'];
+  readonly scope: RegisterScope;
 }
 
 interface RegisterDownloadButtonProps {
@@ -33,7 +38,8 @@ interface RegisterDownloadButtonProps {
 
 /**
  * The entry point (D-137): "Download register" in an expanded batch (secondary), "Trade register" on a trade's
- * label line (ghost), and an icon button on each batch row. Callers show it only when journey.reports.pdfDownload.
+ * label line (ghost), an icon button on each batch row, and "Staff register" on the Staff attendance section's title
+ * line (ghost, D-154). Callers show it only when journey.reports.pdfDownload.
  * Focus returns here when the sheet closes.
  */
 export function RegisterDownloadButton({ target, appearance = 'button', className }: RegisterDownloadButtonProps) {
@@ -48,6 +54,7 @@ export function RegisterDownloadButton({ target, appearance = 'button', classNam
     opener.current?.focus({ preventScroll: true });
   }, [open]);
   const trade = target.scope.kind === 'trade' ? target.scope.tradeName : null;
+  const staff = target.scope.kind === 'staff';
   const show = (event: MouseEvent<HTMLButtonElement>) => {
     opener.current = event.currentTarget;
     setOpen(true);
@@ -61,14 +68,14 @@ export function RegisterDownloadButton({ target, appearance = 'button', classNam
         </button>
       ) : (
         <Button
-          variant={trade ? 'ghost' : 'secondary'}
+          variant={trade || staff ? 'ghost' : 'secondary'}
           size="md"
           leadingIcon="download"
           className={cx(styles.entry, className)}
           aria-label={trade ? t('reports.register.tradeButtonName', { trade }) : undefined}
           onClick={show}
         >
-          {t(trade ? 'reports.register.tradeButton' : 'reports.register.batchButton')}
+          {t(trade ? 'reports.register.tradeButton' : staff ? 'reports.register.staffButton' : 'reports.register.batchButton')}
         </Button>
       )}
       {open && (
@@ -134,25 +141,28 @@ export function RegisterDownloadSheet({ target, onClose, initialMonth }: Registe
     toast.show(t(message));
   };
 
+  /** The file for the chosen month, or null when the service refuses it (out of scope, a month not offered). */
+  const prepare = async (): Promise<{ readonly name: string; readonly html: string } | null> => {
+    const { scope } = target;
+    // The only demo check: an inline comparison, so a demo-off build carries no demo code.
+    const doc = { t, format, lang: language, sampleData: process.env.NEXT_PUBLIC_DEMO_MODE === 'true' };
+    if (scope.kind === 'staff') {
+      const register = await reports.staffRegister(ctx, month);
+      return register && { name: staffRegisterFileName(register), html: staffRegisterDocument(register, { ...doc, logo: await brandLogo() }) };
+    }
+    const register = await reports.register(ctx, { batchIds: target.batchIds, month });
+    return register && { name: registerFileName(register, scope), html: registerDocument(register, { ...doc, logo: await brandLogo(), scope }) };
+  };
+
   const download = async () => {
     // Android WebViews ignore <a download> unless the host app handles it: say so rather than fail silently.
     if (isEmbeddedWebView()) return finish('reports.register.unavailable');
     setBusy(true);
     try {
-      const register = await reports.register(ctx, { batchIds: target.batchIds, month });
-      if (!register) return finish('reports.register.problem');
-      const logo = await brandLogo();
-      const html = registerDocument(register, {
-        t,
-        format,
-        lang: language,
-        logo,
-        scope: target.scope,
-        // The only demo check: an inline comparison, so a demo-off build carries no demo code.
-        sampleData: process.env.NEXT_PUBLIC_DEMO_MODE === 'true',
-      });
+      const file = await prepare();
+      if (!file) return finish('reports.register.problem');
       // Not saved: "inside this app" only in an embedded WebView; any other browser that cannot save gets the problem.
-      const saved = saveTextFile(registerFileName(register, target.scope), html);
+      const saved = saveTextFile(file.name, file.html);
       finish(saved ? 'reports.register.done' : isEmbeddedWebView() ? 'reports.register.unavailable' : 'reports.register.problem');
     } catch {
       finish('reports.register.problem');

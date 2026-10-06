@@ -1,5 +1,5 @@
 'use client';
-import { memo, useEffect, useRef } from 'react';
+import { memo, useEffect, useRef, type ReactNode } from 'react';
 import type { Student } from '@/domain/entities';
 import type { LeaveType, Mark, StatusCode } from '@/domain/status';
 import { AttendanceStatusSelect, LockedStatus } from '@/components/ui/AttendanceStatusSelect';
@@ -12,8 +12,8 @@ import styles from './StudentRow.module.css';
 
 export interface RowLabels {
   readonly status: Readonly<Record<StatusCode, string>>;
-  /** "Father: {name}" split around the name, so only the name is set as Latin master data. */
-  readonly father: readonly [string, string];
+  /** "Father: {name}" with only the name set as Latin master data. */
+  readonly father: (name: string) => ReactNode;
   readonly presentFor: string;
   readonly firstHalf: string;
   readonly secondHalf: string;
@@ -97,9 +97,7 @@ export const StudentRow = memo(function StudentRow(p: StudentRowProps) {
               <Latin>{student.name}</Latin>
             </span>
             <span className={styles.father}>
-              {labels.father[0]}
-              <Latin>{student.fatherName}</Latin>
-              {labels.father[1]}
+              {labels.father(student.fatherName)}
             </span>
             {p.attention && unmarked && (
               <StatusLine tone="warning" icon="circle">

@@ -10,11 +10,6 @@
   display: flex;
   width: 100%;
 }
-@media (min-width: 600px) {
-  .capped {
-    max-width: var(--container-form);
-  }
-}
 .full .option {
   flex: 1;
   /* Options share the track; a long label ellipsises instead of pushing the track past its row. */

@@ -1,7 +1,7 @@
 /**
  * Texts for the capabilities beside marking (D-139, D-142): today's state at the institute (the principal's kickoff,
- * get_status, a refresh, a reconnect), an instructor away from the batch screens (a start on My attendance; Resume,
- * Reconnect and a refresh on Reports or the staff screen) and today's notices. Every number and date is put in by the
+ * get_status, a refresh, a reconnect), an instructor away from the batch screens (Resume, Reconnect and a refresh on
+ * Reports or the staff screen) and today's notices. Every number and date is put in by the
  * app; the model only says it. Tuned against the live model: change wording only with a rehearsal (`npm run test:voice-live`).
  * Pure TypeScript: no I/O, no clock, no framework.
  */
@@ -9,29 +9,34 @@ import type { NavTarget } from '@/domain/voice/plan';
 import { safeText } from '@/domain/voice/types';
 import type { LocalDate } from '@/lib/time';
 import { instantAt } from '@/lib/time';
-import { hello } from './app-events';
+import type { Opening } from './greeting';
 import { dayWords, nameText } from './labels';
 import { SCREENS } from './screens';
 
-/** Today at the institute, as the principal's Home counts it. `staffNotMarked` is null without the staff view. */
+/**
+ * Today at the institute, as the principal's Home counts it. `staffNotMarked` is null without the staff view;
+ * `selfNotMarked`: the principal's own row is among them (said as "you", D-156).
+ */
 export interface TodayFacts {
   readonly batchesSubmitted: number;
   readonly batchesTotal: number;
   readonly staffNotMarked: number | null;
+  readonly selfNotMarked?: boolean;
 }
 
-/** "Today: 4 of 17 batches submitted, 3 staff not marked yet." */
+/** "Today: 4 of 17 batches submitted, 3 staff not marked yet, the principal included." */
 export function todayLine(t: TodayFacts): string {
-  const staff = t.staffNotMarked === null ? '' : t.staffNotMarked ? `, ${t.staffNotMarked} staff not marked yet` : ', every staff member marked';
+  const self = t.selfNotMarked ? ', the principal included' : '';
+  const staff = t.staffNotMarked === null ? '' : t.staffNotMarked ? `, ${t.staffNotMarked} staff not marked yet${self}` : ', every staff member marked';
   return `Today: ${t.batchesSubmitted} of ${t.batchesTotal} batches submitted${staff}.`;
 }
 
-/**
- * First message when voice starts on My attendance with the trainer's own attendance not marked yet: nothing is opened
- * over the screen the trainer chose; the agent offers to mark it (mark_my_attendance runs the screen's own check).
- */
-export function selfStartEvent(languageName: string, greeting: string): string {
-  return `[APP] Session started. The trainer is on My attendance, and their own attendance is not marked today. ${hello(languageName, greeting)}, then ask in one short line whether to mark it now, and wait for the answer. Only after a yes call mark_my_attendance.`;
+/** Today's state as the agent says it, for the kickoff's example line: "4 of 17 batches are in; 5 staff haven't marked yet, including you." */
+function todaySaid(t: TodayFacts): string {
+  const batches = `${t.batchesSubmitted} of ${t.batchesTotal} batches are in`;
+  if (t.staffNotMarked === null) return `${batches}.`;
+  if (!t.staffNotMarked) return `${batches}; every staff member is marked.`;
+  return `${batches}; ${t.staffNotMarked} staff haven't marked yet${t.selfNotMarked ? ', including you' : ''}.`;
 }
 
 /** "the Reports screen", or "another screen" for one voice cannot name. */
@@ -52,9 +57,12 @@ export const awayReconnectEvent = (where: NavTarget | 'other'): string => `[APP]
 export const awayRefreshEvent = (where: NavTarget | 'other'): string =>
   `[APP] The connection was refreshed; trust these facts over your memory. The trainer is on ${awayFacts(where)} Wait for the trainer's request.`;
 
-/** The first message without a batch flow: today's state in one line, then what the trainer needs (D-142). */
-export function overviewStartEvent(t: TodayFacts, languageName: string, greeting: string): string {
-  return `[APP] Session started. ${todayLine(t)} ${hello(languageName, greeting)}, then say today's state in one line, then ask "What do you need?". Then wait.`;
+/**
+ * The first message without a batch flow: the app's greeting line, today's state in one line (staff not marked yet
+ * named, "including you" for the principal's own row, D-156), then the help question (D-142, D-151).
+ */
+export function overviewStartEvent(t: TodayFacts, opening: Opening): string {
+  return `[APP] Session started. ${todayLine(t)} Say exactly: "${opening.greeting}" Then say today's state in one line, in ${opening.languageName} (for example "${todaySaid(t)}"), then ask "${opening.help}". Then wait.`;
 }
 
 /**
@@ -68,7 +76,7 @@ export const overviewReconnectAskEvent = (question: string): string =>
   `[APP] Reconnected. Your last question to the trainer was lost in the reconnect: ask it again now, then wait. Its instruction was: ${question}`;
 
 /**
- * Resume after Use screen: no student to continue from; today's numbers only when asked. A few spoken words, not
+ * Resume after Pause: no student to continue from; today's numbers only when asked. A few spoken words, not
  * silence: a text that asks for no reply left the live model without a turn (rehearsal, Task 16).
  */
 export const OVERVIEW_RESUME_EVENT = "[APP] The trainer is back from the screen. Say in a few words that you are listening, then wait for their request. Do not read out today's numbers unless they ask.";

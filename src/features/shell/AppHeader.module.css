@@ -104,15 +104,14 @@
   overflow-wrap: break-word;
 }
 
-/* Narrow phones (with a tool in the header slot beside it): the brand stays on one line. */
+/*
+ * Narrow phones (with a tool in the header slot beside it): the brand stays on one line. A task title keeps its two
+ * lines at every width (U6): the screen name is never cut to one word, even with the demo trigger beside it.
+ */
 @media (max-width: 359px) {
   .appName {
     font: var(--type-title-medium);
     letter-spacing: var(--ls-title-medium);
-  }
-  /* A task title with the tool beside it takes one line, so the bar stays at most three lines. */
-  .header[data-mode='task']:has([data-tool-slot] > *) .title {
-    -webkit-line-clamp: 1;
   }
 }
 

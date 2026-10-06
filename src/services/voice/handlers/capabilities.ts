@@ -21,7 +21,13 @@ export async function loadToday(deps: BaseDeps): Promise<TodayFacts> {
     ctx.journey.staff.principalStaffView ? staffAttendance.day(ctx) : Promise.resolve(null),
   ]);
   const progress = sessionProgress(boards.flat());
-  return { batchesSubmitted: progress.submitted, batchesTotal: progress.total, staffNotMarked: staff ? staff.filter((r) => !r.record).length : null };
+  const left = staff?.filter((r) => !r.record) ?? null;
+  return {
+    batchesSubmitted: progress.submitted,
+    batchesTotal: progress.total,
+    staffNotMarked: left ? left.length : null,
+    selfNotMarked: !!left?.some((r) => r.member.id === ctx.user.id),
+  };
 }
 
 /** get_status without a marking flow: today's numbers, answered in one short line. */

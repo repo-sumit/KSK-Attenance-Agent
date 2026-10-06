@@ -168,7 +168,7 @@ describe('what does not outlive a stop', () => {
     expect(h.transport.toolResponses).toHaveLength(0);
   });
 
-  it('a tap while paused (Use screen) reaches the executor as quiet: it asks nothing; live again, taps are told', async () => {
+  it('a tap while paused (Pause) reaches the executor as quiet: it asks nothing; live again, taps are told', async () => {
     const { h, s } = await live();
     const onDraft = vi.spyOn(h.executor, 'onDraftChange');
     h.openDraft();
@@ -261,7 +261,7 @@ describe('the goAway swap in detail', () => {
     expect(status(s)).not.toBe('error');
   });
 
-  it('a swap during Use screen sends no refresh and no pause text, and stays paused', async () => {
+  it('a swap during Pause sends no refresh and no pause text, and stays paused', async () => {
     const { h, s } = await live();
     h.transport.emit({ resumption: { handle: 'h-1', resumable: true } });
     s.pause();

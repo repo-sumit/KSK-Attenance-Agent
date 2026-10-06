@@ -1,10 +1,9 @@
 'use client';
-import { useId, type ReactNode } from 'react';
-import { Icon } from '@/components/ui/icons/Icon';
+import type { ReactNode } from 'react';
 import { Segmented } from '@/components/ui/Segmented';
 import type { AppConfiguration } from '@/config/types';
 import type { StatusCode } from '@/domain/status';
-import type { DemoController, NetworkMode } from '../controller';
+import type { DemoController } from '../controller';
 import type { DemoState } from '../state';
 import styles from './DemoPanel.module.css';
 
@@ -25,47 +24,25 @@ export function Choice<V extends string>({ label, value, options, onChange }: { 
   );
 }
 
-/** A native select, for options too long to share a segmented track at 320px. */
-export function Select<V extends string>({ label, value, options, onChange }: { label: string; value: V; options: ReadonlyArray<readonly [V, string]>; onChange: (v: V) => void }) {
-  const id = useId();
-  return (
-    <div className={styles.row}>
-      <label htmlFor={id} className={styles.rowLabel}>
-        {label}
-      </label>
-      <span className={styles.selectField}>
-        <select id={id} className={styles.select} value={value} onChange={(e) => onChange(e.target.value as V)}>
-          {options.map(([v, l]) => (
-            <option key={v} value={v}>
-              {l}
-            </option>
-          ))}
-        </select>
-        <Icon name="chevron-down" size={20} className={styles.selectIcon} />
-      </span>
-    </div>
-  );
-}
-
-const onOff = (b: boolean) => (b ? 'on' : 'off');
-const ON_OFF = [['off', 'Off'], ['on', 'On']] as const;
+export const onOff = (b: boolean) => (b ? 'on' : 'off');
+export const ON_OFF = [['off', 'Off'], ['on', 'On']] as const;
 
 interface SettingsProps {
   readonly config: AppConfiguration;
   readonly state: DemoState;
   readonly controller: DemoController;
   readonly faceEnrolled: boolean;
-  readonly language: 'en' | 'mr';
 }
 
-/** DEMO ONLY. Live configuration and simulation controls; hidden when their parent option is off. */
-export function DemoSettings({ config, state, controller: c, faceEnrolled, language }: SettingsProps) {
+/**
+ * DEMO ONLY. The Advanced settings (collapsed in the panel): verification, marking, time fencing, staff attendance and
+ * the next sync. Hidden when their parent option is off. The settings presenters change most are Quick settings.
+ */
+export function DemoSettings({ config, state, controller: c, faceEnrolled }: SettingsProps) {
   const sim = state.simulation;
   const statuses = config.marking.statusSet;
   const toggleStatus = (code: StatusCode, on: boolean) =>
     c.setConfig({ marking: { statusSet: on ? [...new Set([...statuses, code])] : statuses.filter((s) => s !== code) } });
-  const network: NetworkMode = !sim.online ? 'offline' : config.offline.autoSync ? 'online' : 'pending';
-  const clock = state.clock.mode === 'real' ? 'real' : state.clock.time;
 
   return (
     <>
@@ -133,12 +110,6 @@ export function DemoSettings({ config, state, controller: c, faceEnrolled, langu
       <section className={styles.section}>
         <h3 className={styles.sectionTitle}>Time</h3>
         <Choice label="Time fencing" value={onOff(config.time.fencing)} options={ON_OFF} onChange={(v) => c.setConfig({ time: { fencing: v === 'on' } })} />
-        <Choice
-          label="Demo clock"
-          value={clock}
-          options={[['07:30', '7:30'], ['10:15', '10:15'], ['11:30', '11:30'], ['14:30', '2:30 PM'], ['real', 'Real']]}
-          onChange={(v) => c.setClock(v)}
-        />
       </section>
 
       <section className={styles.section}>
@@ -153,27 +124,8 @@ export function DemoSettings({ config, state, controller: c, faceEnrolled, langu
       </section>
 
       <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>Voice</h3>
-        {/* Only voice.enabled and the voice model: never limits or marking styles, which have their own validation rules. */}
-        <Choice label="Voice Agent" value={onOff(config.voice.enabled)} options={ON_OFF} onChange={(v) => c.setConfig({ voice: { enabled: v === 'on' } })} />
-        {config.voice.enabled && (
-          <>
-            <Select
-              label="Voice model"
-              value={sim.voice}
-              options={[['live', 'Live (Gemini)'], ['scripted', 'Scripted (no mic, no network)']]}
-              onChange={(v) => c.setSimulation({ voice: v })}
-            />
-            <p className={styles.hint}>Used from the next Voice Agent start. Live needs a microphone and the server’s Gemini key.</p>
-          </>
-        )}
-      </section>
-
-      <section className={styles.section}>
-        <h3 className={styles.sectionTitle}>Network &amp; language</h3>
-        <Choice label="Network" value={network} options={[['online', 'Online'], ['offline', 'Offline'], ['pending', 'Pending sync']]} onChange={(v) => void c.setNetwork(v)} />
+        <h3 className={styles.sectionTitle}>Sync</h3>
         <Choice label="Next sync" value={sim.nextSyncFails ? 'fails' : 'works'} options={[['works', 'Works'], ['fails', 'Fails']]} onChange={(v) => c.setSimulation({ nextSyncFails: v === 'fails' })} />
-        <Choice label="Language" value={language} options={[['en', 'English'], ['mr', 'मराठी']]} onChange={(v) => void c.setLanguage(v)} />
       </section>
     </>
   );

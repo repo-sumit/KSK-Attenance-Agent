@@ -1,4 +1,4 @@
-import { demo, expect, nav, preset, test } from './fixtures';
+import { demo, expect, nav, preset, realGreeting, test } from './fixtures';
 
 test('Home is today’s work: notices, classes, my attendance; no Attendance tab and no “View reports”', async ({ page, consoleErrors }) => {
   void consoleErrors;
@@ -99,4 +99,21 @@ test('Sync now offline explains instead of doing nothing', async ({ page, consol
   await card.getByRole('button', { name: 'Sync now' }).click({ force: true });
   await expect(page.getByRole('status').filter({ hasText: 'Connect to the internet to sync' })).toBeVisible();
   await expect(card).toContainText('1 attendance record waiting');
+});
+
+test('the greeting follows the real time of day while the classes keep the demo clock (D-151)', async ({ page, consoleErrors }) => {
+  void consoleErrors;
+  await preset(page, 'batch');
+  // The demo clock stays at 10:15 (Shift 1 · Unit 2 is open for marking), whatever the machine's time is.
+  await expect(page.locator('main').getByRole('link', { name: /Shift 1 · Unit 2/ })).toContainText('Mark attendance');
+  await expect(page.getByRole('heading', { level: 2, name: realGreeting('Sunita') })).toBeVisible();
+});
+
+test('the trade groups under "Your batches" are h3 headings under its h2, as on Reports (U19)', async ({ page, consoleErrors }) => {
+  void consoleErrors;
+  await preset(page, 'batch');
+  const batches = page.getByRole('region', { name: 'Your batches' });
+  await expect(batches.getByRole('heading', { level: 2, name: 'Your batches' })).toBeVisible();
+  await expect(batches.getByRole('heading', { level: 3, name: 'Electrician' })).toBeVisible();
+  await expect(batches.getByRole('heading', { level: 2, name: 'Electrician' })).toHaveCount(0);
 });

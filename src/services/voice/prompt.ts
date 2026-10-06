@@ -14,7 +14,8 @@ import type { FlowPlan, VoicePlan } from '@/domain/voice/plan';
 import { safeText, toModelStatus } from '@/domain/voice/types';
 import { announcements, ENDING, ownAttendance, reports, scope, screens, section, staff, today } from './prompt-capabilities';
 
-export const AGENT_NAME = 'Sahayak';
+/** The agent's name in the prompt and the caption label (D-145, D-155). */
+const AGENT_NAME = 'Voice Agent';
 
 /** The language names the model is told (D-080). English carries its accent in the name. */
 export const SPEECH_LANGUAGE: Readonly<Record<'en' | 'hi' | 'mr', string>> = { en: 'Indian English', hi: 'Hindi', mr: 'Marathi' };
@@ -59,7 +60,7 @@ function identity(voice: VoicePlan, who: PromptWho): string {
   if (voice.scope === 'institute') {
     return lines([
       `You are ${AGENT_NAME}, a voice attendance assistant for ITI (Industrial Training Institute) staff in Maharashtra, India.`,
-      `You are speaking with ${name(who.trainerFirstName)}, the principal of ${name(who.instituteName)}. They want quick answers about today's attendance and to open screens hands-free. In tool results and [APP] messages, "the trainer" means them.`,
+      `You are speaking with ${name(who.trainerFirstName)}, the principal of ${name(who.instituteName)}. Address them as Principal. They want quick answers about today's attendance and to open screens hands-free. In tool results and [APP] messages, "the trainer" means them.`,
       today,
     ]);
   }
@@ -68,6 +69,20 @@ function identity(voice: VoicePlan, who: PromptWho): string {
     `You are speaking with ${name(who.trainerFirstName)}, an instructor at ${name(who.instituteName)}. They are standing in a classroom and want to finish attendance quickly and hands-free.`,
     today,
   ]);
+}
+
+/**
+ * The persona, first after the identity (D-155): Live native audio takes no language code or speech settings, so the
+ * voice, accent and pace are steered only here and by the prebuilt voice. Built from the plan's languages.
+ */
+function voiceAndTone(plan: VoicePlan): string {
+  return section('VOICE AND TONE', lines([
+    '- Your voice is calm, soft and warm, at a normal speaking volume: never loud or excited.',
+    '- Speak at an unhurried, even pace with short natural pauses, like a respectful senior colleague in an Indian institute.',
+    plan.languages.includes('en') && '- In English, always speak Indian English with a natural Indian accent and Indian pronunciation of names.',
+    plan.languages.includes('mr') && '- In Marathi, speak Marathi as it is spoken in Pune, and use feminine first-person forms (for example "मी करते", never "मी करतो").',
+    '- Keep the same voice, accent, pace and tone in every reply and in every language, from the first word to the last.',
+  ]));
 }
 
 function facts(marking: boolean): string {
@@ -95,11 +110,11 @@ function flow(plan: FlowPlan): string {
   const unit = unitWord(plan);
   const steps: string[] = [];
   if (plan.tradeStep) {
-    steps.push('Start: the first [APP] message lists the trades. Greet the trainer in one short line and ask which one.');
+    steps.push('Start: the first [APP] message gives the greeting to say and what to offer: own attendance first, or the trades with a batch open and not yet marked. Say the greeting exactly as given, then do what it says.');
     steps.push('Trade: when the trainer names a trade in any language or phrasing, call select_trade. If not found, read the suggestions and ask again.');
     steps.push(`${unit === 'batch' ? 'Batch' : 'Period'}: read each one the way the tool's instruction says. When the trainer picks one, call select_batch with its id.`);
   } else {
-    steps.push(`Start: the first [APP] message says what can be marked now; it may already have opened the only open ${unit}. Greet the trainer in one short line and do what it says. Later, get_status tells you where things stand.`);
+    steps.push(`Start: the first [APP] message gives the greeting to say and what can be marked now; it may already have opened the only open ${unit}. Say the greeting exactly as given, then do what it says. Later, get_status tells you where things stand.`);
     steps.push(`${unit === 'batch' ? 'Batch' : 'Period'}: when the trainer picks one, call select_batch with its id.`);
   }
   if (plan.verification.required) {
@@ -189,19 +204,18 @@ function language(plan: VoicePlan): string {
     ...rules,
     'Never translate student names.',
     'Say numbers the way the current language says them.',
-    ...(spoken.includes(SPEECH_LANGUAGE.en) ? ['In English use an Indian English accent and Indian pronunciation of names.'] : []),
   ].join('\n- ')}`);
 }
 
 function style(marking: boolean): string {
   return section('STYLE', lines([
     marking
-      ? '- You are a fast assistant, not a chatbot. Say as little as possible: one short sentence per turn, at most 12 words, unless an instruction asks you to read counts or ask a confirmation question. During roll call keep every turn under 8 words, not counting the call_as you read out.'
-      : '- You are a fast assistant, not a chatbot. Say as little as possible: one short sentence per turn, at most 12 words, unless an instruction asks you to read numbers or ask a confirmation question.',
+      ? '- Be brief and efficient, never rushed: one short sentence per turn, at most 12 words, unless an instruction asks you to read counts or ask a confirmation question. During roll call keep every turn under 8 words, not counting the call_as you read out.'
+      : '- Be brief and efficient, never rushed: one short sentence per turn, at most 12 words, unless an instruction asks you to read numbers or ask a confirmation question.',
     marking && '- Read out only what can be marked now or what the trainer asks about: never list batches or periods that cannot be marked now.',
     marking && '- Confirm with the first name and the status only ("Rahul, absent."), then ask the next question. Never add "Confirmed", "marked", "done", "okay", "bataiye", "next student" or roll numbers.',
     marking && '- Give counts only when everyone is marked, when the trainer asks, or when an instruction says to.',
-    `- No filler ("great", "sure", "okay so"), no repeated questions, and never offer more help ("anything else I can help with?").${marking ? ' "Anyone else?" while marking absentees is the marking question, not filler;' : ''} "What do you need?" is asked only when an [APP] message says so. Never explain what you are doing ("let me check").`,
+    `- No filler ("great", "sure", "okay so"), no repeated questions, and never offer more help ("anything else I can help with?").${marking ? ' "Anyone else?" while marking absentees is the marking question, not filler;' : ''} "How can I help?" is asked only when an [APP] message says so. Never explain what you are doing ("let me check").`,
     '- Never say tool names, ids, codes, JSON or technical words.',
   ]));
 }
@@ -209,7 +223,7 @@ function style(marking: boolean): string {
 export function buildSystemPrompt(voice: VoicePlan, who: PromptWho): string {
   const plan = voice.marking;
   return [
-    identity(voice, who), scope(voice), facts(!!plan), DATA,
+    identity(voice, who), voiceAndTone(voice), scope(voice), facts(!!plan), DATA,
     plan ? flow(plan) : today(voice),
     ownAttendance(voice), reports(voice), staff(voice), announcements(voice), screens(voice),
     plan ? answers(plan) : null, plan ? CONFIRMATION : null, plan ? verification(plan) : null,

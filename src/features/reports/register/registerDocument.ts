@@ -6,7 +6,7 @@ import type { I18n } from '@/i18n';
 import { instantAt, type LocalDate } from '@/lib/time';
 import type { AttendanceRegister } from '@/services/report-register';
 import { escapeHtml as e } from './escape';
-import { batchSection, batchTitle, tradeSummary, type DocContext } from './registerParts';
+import { batchSection, batchTitle, tradeSummary, type RegisterHeader, type SheetContext } from './registerParts';
 import { REGISTER_STYLES } from './registerStyles';
 
 export interface RegisterDocumentOptions {
@@ -29,7 +29,8 @@ const TIME_ZONE = 'Asia/Kolkata';
 /** Only an inline raster image is embedded (once, in the stylesheet); anything else (a URL, markup) is dropped. */
 const DATA_IMAGE = /^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/]+=*$/;
 
-function context(register: AttendanceRegister, options: RegisterDocumentOptions): DocContext {
+/** The sheet context for any register (student or staff): the month's name, narrow weekdays, a validated logo. */
+export function sheetContext<R extends RegisterHeader>(register: R, options: Pick<RegisterDocumentOptions, 't' | 'format' | 'logo' | 'sampleData'>): SheetContext<R> {
   const { locale } = options.format;
   const weekday = new Intl.DateTimeFormat(locale, { weekday: 'narrow', timeZone: TIME_ZONE });
   const noon = (date: LocalDate) => instantAt(date, '12:00');
@@ -44,21 +45,30 @@ function context(register: AttendanceRegister, options: RegisterDocumentOptions)
   };
 }
 
+/**
+ * The document around the sheets, shared by every register: the CSP, the stylesheet with the emblem embedded once
+ * (only a validated data: URL), the toolbar with its Print button and the only script. `sheets` is escaped markup.
+ */
+export function documentShell(c: SheetContext, parts: { readonly lang: 'en' | 'mr'; readonly title: string; readonly name: string; readonly styles?: string; readonly sheets: string }): string {
+  const { t } = c;
+  return (
+    `<!doctype html><html lang="${parts.lang === 'mr' ? 'mr' : 'en'}"><head><meta charset="utf-8">` +
+    `<meta name="viewport" content="width=device-width, initial-scale=1">` +
+    `<meta http-equiv="Content-Security-Policy" content="${CSP}">` +
+    `<title>${e(parts.title)}</title><style>${REGISTER_STYLES}${parts.styles ?? ''}${c.logo ? `.emblem{background:url("${c.logo}") center/contain no-repeat}` : ''}</style></head><body>` +
+    `<div class="toolbar"><span class="toolbar-title">${e(`${t('register.app')} · ${parts.name}`)}</span>` +
+    `<button id="print" type="button">${e(t('register.print'))}</button></div>` +
+    `<main>${parts.sheets}</main><script>${PRINT_SCRIPT}</script></body></html>`
+  );
+}
+
 export function registerDocument(register: AttendanceRegister, options: RegisterDocumentOptions): string {
-  const c = context(register, options);
+  const c = sheetContext(register, options);
   const { t, scope } = options;
   const subject = scope.kind === 'trade' ? scope.tradeName : register.batches[0] ? batchTitle(c, register.batches[0]) : '';
   const title = [t('register.title'), subject, c.monthLabel].filter(Boolean).join(' · ');
   const sheets = (scope.kind === 'trade' ? tradeSummary(c, scope.tradeName) : '') + register.batches.map((b) => batchSection(c, b)).join('');
-  return (
-    `<!doctype html><html lang="${options.lang === 'mr' ? 'mr' : 'en'}"><head><meta charset="utf-8">` +
-    `<meta name="viewport" content="width=device-width, initial-scale=1">` +
-    `<meta http-equiv="Content-Security-Policy" content="${CSP}">` +
-    `<title>${e(title)}</title><style>${REGISTER_STYLES}${c.logo ? `.emblem{background:url("${c.logo}") center/contain no-repeat}` : ''}</style></head><body>` +
-    `<div class="toolbar"><span class="toolbar-title">${e(`${t('register.app')} · ${t('register.title')}`)}</span>` +
-    `<button id="print" type="button">${e(t('register.print'))}</button></div>` +
-    `<main>${sheets}</main><script>${PRINT_SCRIPT}</script></body></html>`
-  );
+  return documentShell(c, { lang: options.lang, title, name: t('register.title'), sheets });
 }
 
 const slug = (text: string) =>

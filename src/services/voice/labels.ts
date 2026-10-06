@@ -129,12 +129,27 @@ export function distanceText(distanceM: number): string {
  * The checks the screen runs, as the agent names them: "location and face", "location" or "face" ("" with none). Silent
  * geo-tagging ('background') is never named: it has no voice line (PRD 8.1), as in verificationPhrase.
  */
-export function checkWords(v: { readonly location: string; readonly face: boolean }): string {
-  return [v.location === 'fence' && 'location', v.face && 'face'].filter(Boolean).join(' and ');
+export function checkWords(v: { readonly location: string; readonly face: boolean }): CheckWords | '' {
+  const location = v.location === 'fence';
+  if (location && v.face) return 'location and face';
+  if (location) return 'location';
+  return v.face ? 'face' : '';
 }
 
+/** The checks a voice line names: what checkWords and verificationPhrase return when a check is named. */
+export type CheckWords = 'location and face' | 'location' | 'face';
+
+const CHECK_LINES: Readonly<Record<CheckWords, string>> = {
+  'location and face': 'Checking your location, then please look at the camera.',
+  location: 'Checking your location.',
+  face: 'Please look at the camera.',
+};
+
+/** The agent's one line as a check starts (D-148): it names the steps and the camera, never "the screen" (the card's pause). */
+export const checkLine = (words: CheckWords): string => CHECK_LINES[words];
+
 /** What the gateway checks, for the voice line. null when only silent geo-tagging runs (PRD 8.1: no voice line for tagging). */
-export function verificationPhrase(plan: FlowPlan): 'location' | 'face' | 'location and face' | null {
+export function verificationPhrase(plan: FlowPlan): CheckWords | null {
   const location = plan.verification.location === 'fence';
   const face = plan.verification.face;
   if (location && face) return 'location and face';

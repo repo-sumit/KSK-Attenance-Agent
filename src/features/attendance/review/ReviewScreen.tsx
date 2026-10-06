@@ -1,20 +1,19 @@
 'use client';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
-import { AttendanceSummary, summaryItems } from '@/components/ui/AttendanceSummary';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react';
+import { AttendanceSummary } from '@/components/ui/AttendanceSummary';
 import { Banner } from '@/components/ui/Banner';
-import { BottomSheet } from '@/components/ui/BottomSheet';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { DetailRows } from '@/components/ui/DetailRows';
 import { Icon } from '@/components/ui/icons/Icon';
+import { InlineNote } from '@/components/ui/InlineNote';
 import { Latin } from '@/components/ui/Latin';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { statusIcon, statusTone } from '@/components/ui/status-style';
 import { useToast } from '@/components/ui/Toast';
 import { ScreenLayout } from '@/components/shell/ScreenLayout';
 import { AppHeader } from '@/features/shell/AppHeader';
-import { contributesToPresent, countMarks, effectivePresent, presentTerms, summaryStatuses } from '@/domain/marking';
+import { countMarks, summaryStatuses } from '@/domain/marking';
 import type { Mark, StatusCode } from '@/domain/status';
 import type { Student } from '@/domain/entities';
 import { useI18n } from '@/hooks/i18n';
@@ -25,6 +24,7 @@ import { cx } from '@/lib/cx';
 import { routes } from '@/lib/routes';
 import type { MessageKey } from '@/i18n';
 import { batchTitle, closingSoon, summaryLabels } from '../../common/labels';
+import { latinText } from '../../common/LatinText';
 import { useSessionLabel } from '../useSessionLabel';
 import styles from './Review.module.css';
 import { useAttendanceRoot } from '../useAttendanceRoot';
@@ -32,7 +32,10 @@ import { useAttendanceRoot } from '../useAttendanceRoot';
 /** Group titles for the statuses listed as exceptions; a status added to the registry later falls back to "Name (n)". */
 const GROUP_TITLES: Partial<Record<StatusCode, MessageKey>> = { absent: 'review.absent', half_day: 'review.halfDay', leave: 'review.leave', ojt: 'review.ojt' };
 
-/** Last check before the irreversible submit (PRD §12.1): the totals, the exceptions, then a confirmation with the counts. */
+/**
+ * Last check before the irreversible submit (PRD §12.1): the totals and the exceptions. Its Submit is the one
+ * confirmation (D-149): it saves at once, and the screen says the submit is final.
+ */
 export function ReviewScreen() {
   const { t, format } = useI18n();
   const root = useAttendanceRoot();
@@ -42,8 +45,9 @@ export function ReviewScreen() {
   const { attendance, drafts } = useServices();
   const label = useSessionLabel();
   const key = useSearchParams().get('s') ?? '';
-  const [sheet, setSheet] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Taken before the first await: a second tap in the frame before `busy` renders must not start a second save.
+  const saving = useRef(false);
   const summary = useMemo(() => summaryLabels(t, format), [t, format]);
   // Review renders the live draft (D-084), so a voice change while it is open shows here too.
   const { data } = useQuery(
@@ -78,18 +82,30 @@ export function ReviewScreen() {
   const meta = [name.meta, format.longDate(card.address.date)].filter(Boolean).join(' · ');
 
   const submit = async () => {
+    if (saving.current) return;
+    saving.current = true;
     setBusy(true);
     // The draft is held while it saves (until it is closed): a voice mark meanwhile is refused and told so, never
     // confirmed and then left out of the record. The submitted change carries exactly what was sent. Only a hold this
     // submit took is released (with no live draft there is none, and voice's must not end early).
-    const result = await drafts.whileSubmitting(key, async (sent) => {
-      const saved = await attendance.submit(ctx, key, sent?.marks ?? marks);
-      if (saved.ok) drafts.close(key, { kind: 'submitted', via: 'tap', sent });
-      return saved;
-    });
-    setBusy(false);
-    setSheet(false);
+    let result: Awaited<ReturnType<typeof attendance.submit>>;
+    try {
+      result = await drafts.whileSubmitting(key, async (sent) => {
+        const saved = await attendance.submit(ctx, key, sent?.marks ?? marks);
+        if (saved.ok) drafts.close(key, { kind: 'submitted', via: 'tap', sent });
+        return saved;
+      });
+    } catch {
+      // A storage or repository failure: nothing was saved and the marks stay in the draft, so Submit is free again.
+      saving.current = false;
+      setBusy(false);
+      toast.show(t('review.saveFailed'));
+      return;
+    }
+    // Saved: the screen stays busy until the result replaces it, so Submit never shows again for a saved record.
     if (result.ok) return router.replace(routes.submitted(key));
+    saving.current = false;
+    setBusy(false);
     if (result.error === 'already_submitted') {
       drafts.close(key, { kind: 'closed', via: 'system' }); // submitted elsewhere: the live draft is stale
       return router.replace(routes.record(key));
@@ -104,30 +120,16 @@ export function ReviewScreen() {
     .map((status) => ({ status, students: students.filter((s) => marks[s.id]?.status === status) }))
     .filter((g) => g.students.length > 0);
   const soon = closingSoon(card, ctx.clock.now());
-  // The confirmation lists the same numbers as the summary (Present as it counts, the rest raw), never a copy that could disagree.
-  const sheetRows = summaryItems(counts, statuses, summary)
-    .filter((item) => item.key !== 'total' && (item.value > 0 || item.key === 'present' || item.key === 'absent'))
-    .map((item) => ({
-      key: item.key,
-      label: (
-        <>
-          {item.icon && <Icon name={item.icon} size={16} strokeWidth={2.5} />}
-          {item.label}
-        </>
-      ),
-      value: format.number(item.value),
-      tone: item.tone === 'neutral' ? ('default' as const) : item.tone,
-    }));
-  const breakdown = contributesToPresent(summaryStatuses(statuses, counts)) ? summary.breakdown({ total: effectivePresent(counts), terms: presentTerms(counts), statuses: summaryStatuses(statuses, counts) }) : null;
 
   /** The one thing a reviewer needs under each name: the detail of the status (the group already says which). */
-  const detailOf = (student: Student, mark: Mark) => {
+  const detailOf = (student: Student, mark: Mark): ReactNode => {
     if (mark.status === 'half_day' && mark.half) return t(mark.half === 1 ? 'status.firstHalf' : 'status.secondHalf');
     if (mark.status === 'leave' && mark.leaveType) {
       const type = t(`status.${mark.leaveType}`);
       return mark.leaveUntil ? t('status.withDetail', { status: type, detail: t('review.until', { date: format.dayMonth(mark.leaveUntil) }) }) : type;
     }
-    return t('roster.father', { name: student.fatherName });
+    // The father's name is Latin master data inside the translated "Father: …" (U14).
+    return latinText(t, 'roster.father', { name: student.fatherName }, ['name']);
   };
 
   return (
@@ -138,10 +140,10 @@ export function ReviewScreen() {
       header={<AppHeader back="back" title={t('review.title')} backHref={routes.mark(key)} />}
       footer={
         <>
-          <Button fullWidth onClick={() => setSheet(true)}>
-            {t('review.submit')}
+          <Button fullWidth onClick={submit} loading={busy}>
+            {busy ? t('review.submitting') : t('review.submit')}
           </Button>
-          <Button variant="secondary" fullWidth onClick={() => router.back()}>
+          <Button variant="secondary" fullWidth onClick={() => router.back()} disabled={busy}>
             {t('review.goBack')}
           </Button>
         </>
@@ -165,6 +167,7 @@ export function ReviewScreen() {
             }
           />
         </Card>
+        <InlineNote>{t('review.finalNote')}</InlineNote>
         {soon && (
           <Banner tone="warning" icon="clock" live>
             {t('roster.closingSoon', { time: format.clockTime(card.address.date, soon) })}
@@ -199,25 +202,6 @@ export function ReviewScreen() {
           );
         })
       )}
-      <BottomSheet
-        open={sheet}
-        onClose={() => setSheet(false)}
-        title={t('review.sheetTitle')}
-        description={t('review.sheetBody')}
-        actions={
-          <>
-            <Button fullWidth onClick={submit} loading={busy}>
-              {busy ? t('review.submitting') : t('review.sheetCta')}
-            </Button>
-            <Button variant="secondary" fullWidth onClick={() => setSheet(false)} disabled={busy}>
-              {t('common.cancel')}
-            </Button>
-          </>
-        }
-      >
-        <DetailRows variant="hero" emphasis rows={sheetRows} />
-        {breakdown && <p className={styles.breakdown}>{breakdown}</p>}
-      </BottomSheet>
     </ScreenLayout>
   );
 }

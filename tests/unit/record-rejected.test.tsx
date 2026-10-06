@@ -19,10 +19,11 @@ import { setup, signIn, verify } from '../helpers/app';
 
 const KEY = 'ele-s1u2.2026-09-25.daily';
 
+const url = vi.hoisted(() => ({ s: 'ele-s1u2.2026-09-25.daily' }));
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), prefetch: vi.fn() }),
   usePathname: () => '/record',
-  useSearchParams: () => new URLSearchParams({ s: 'ele-s1u2.2026-09-25.daily' }),
+  useSearchParams: () => new URLSearchParams({ s: url.s }),
 }));
 const signed = vi.hoisted(() => ({ ctx: null as unknown }));
 vi.mock('@/hooks/session', () => ({
@@ -40,7 +41,10 @@ vi.mock('@/components/shell/ScreenLayout', () => ({
 }));
 vi.mock('@/features/shell/AppHeader', () => ({ AppHeader: () => null }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  url.s = KEY;
+});
 
 async function refusedRecord() {
   const env = setup();
@@ -125,3 +129,54 @@ describe('Task 17: the long refused line and Latin-script names', () => {
   });
 });
 
+
+describe('D-150: the record shows only the session it was opened for', () => {
+  it("the principal's today record has no Today/Yesterday switch and still links each student to the correction", async () => {
+    const env = setup();
+    const instructor = await signIn(env.app, 'TR-10432');
+    await verify(env.app, instructor, KEY);
+    const roster = await env.app.services.attendance.openRoster(instructor, KEY);
+    if (!roster.ok) throw new Error(roster.error);
+    if (!(await env.app.services.attendance.submit(instructor, KEY, roster.value.marks)).ok) throw new Error('submit');
+    await env.app.services.sync.syncNow();
+    signed.ctx = await signIn(env.app, 'PR-2741');
+    render(tree(env, <RecordScreen />));
+    await screen.findByText(/Tap a student to correct/);
+    expect(screen.queryByRole('radiogroup')).toBeNull();
+    expect(screen.queryByRole('radio', { name: 'Yesterday' })).toBeNull();
+    expect(screen.getAllByRole('link').length).toBe(roster.value.students.length);
+  });
+
+  it('a typed past-date URL of a submitted day renders read-only, with no correction links (no backdating)', async () => {
+    const env = setup();
+    signed.ctx = await signIn(env.app, 'PR-2741');
+    url.s = 'ele-s1u1.2026-09-24.daily';
+    // The day before has a submission (generated history), so the principal would see links if past days were open.
+    expect(await env.app.repositories.attendance.getSubmission(url.s)).toBeDefined();
+    render(tree(env, <RecordScreen />));
+    expect(await screen.findByText('Attendance from previous days can’t be corrected.')).toBeVisible();
+    expect(screen.queryByText(/Nothing was submitted for/)).toBeNull();
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.queryByRole('radiogroup')).toBeNull();
+  });
+
+  it('a typed past-date URL of a day with no submission says nothing was submitted, with no links', async () => {
+    const env = setup();
+    signed.ctx = await signIn(env.app, 'PR-2741');
+    url.s = 'ele-s1u1.2026-09-20.daily';
+    expect(await env.app.repositories.attendance.getSubmission(url.s)).toBeUndefined();
+    render(tree(env, <RecordScreen />));
+    expect(await screen.findByText(/Nothing was submitted for/)).toBeVisible();
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.queryByRole('radiogroup')).toBeNull();
+  });
+
+  it("while own attendance comes first, today's empty record says so instead of offering Mark attendance", async () => {
+    const env = setup({ staff: { selfBeforeStudents: true } });
+    signed.ctx = await signIn(env.app, 'TR-10432');
+    render(tree(env, <RecordScreen />));
+    await screen.findByText('Not submitted yet');
+    expect(await screen.findByText('Mark your attendance first')).toBeVisible();
+    expect(screen.queryByRole('link', { name: 'Mark attendance' })).toBeNull();
+  });
+});

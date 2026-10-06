@@ -132,3 +132,26 @@ describe('POST /api/voice/token without a key', () => {
     expect(JSON.stringify(consoleError.mock.calls)).not.toContain('sk-secret');
   });
 });
+
+describe('POST /api/voice/token rate limit per environment (D-158; production keeps D-107)', () => {
+  async function routeFor(env: string) {
+    vi.resetModules(); // the limiter is built when the module loads
+    vi.stubEnv('NODE_ENV', env);
+    const route = await import('@/app/api/voice/token/route');
+    vi.mocked((await import('@/server/voice/token')).mintVoiceToken).mockResolvedValue(MINTED);
+    return (ip: string) =>
+      route.POST(new Request('http://localhost:3000/api/voice/token', { method: 'POST', headers: { host: 'localhost:3000', origin: 'http://localhost:3000', 'x-forwarded-for': ip } }));
+  }
+
+  it('allows 200 tokens in 10 minutes from one client in development (every local tab and script shares one key)', async () => {
+    const request = await routeFor('development');
+    for (let i = 0; i < 200; i += 1) expect((await request('::1')).status).toBe(200);
+    expect((await request('::1')).status).toBe(429);
+  });
+
+  it('keeps 20 in production', async () => {
+    const request = await routeFor('production');
+    for (let i = 0; i < 20; i += 1) expect((await request('198.51.100.30')).status).toBe(200);
+    expect((await request('198.51.100.30')).status).toBe(429);
+  });
+});

@@ -1,0 +1,11 @@
+{
+  "preset": "open",
+  "lang": "en",
+  "viewport": [1280, 800],
+  "voice": "Rishi",
+  "simulation": { "camera": "simulated" },
+  "lead": 10,
+  "steps": [{ "say": "Mark my attendance", "gap": 34 }],
+  "tail": 6,
+  "shotEvery": 2
+}

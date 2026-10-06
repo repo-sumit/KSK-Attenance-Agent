@@ -22,9 +22,25 @@ export interface VoiceApi {
   reconnect(): void;
   setPushToTalk(on: boolean): void;
   talk(down: boolean): void;
+  /**
+   * A screen that moves on its own (the verification run) waits for the agent before its next step (D-148): resolves
+   * when voice is not streaming, when the agent has been quiet for 300 ms with no model turn pending or in progress,
+   * at `capMs` (scaled by the simulation speed), or when `signal` aborts. At once while Voice Agent is off.
+   */
+  settle(capMs: number, signal?: AbortSignal): Promise<void>;
 }
 
 export const VoiceContext = createContext<VoiceApi | null>(null);
+
+/**
+ * What paces a screen that moves on its own (the verification run, D-148): whether voice is live (listening or
+ * speaking) and `settle`. A separate context, because the voice state changes several times a second (mic level,
+ * captions) while these do not: the verification screen re-renders only when voice goes live or stops being live.
+ */
+export interface VoicePace {
+  readonly live: boolean;
+  settle(capMs: number, signal?: AbortSignal): Promise<void>;
+}
 
 /**
  * The agent's current student only. A separate context, because the voice state changes several times a second
@@ -33,6 +49,7 @@ export const VoiceContext = createContext<VoiceApi | null>(null);
 export const VoiceFocusContext = createContext<VoiceState['focus']>(null);
 
 const noop = () => undefined;
+const settled = () => Promise.resolve();
 const INERT: VoiceApi = Object.freeze({
   available: false,
   marks: false,
@@ -45,7 +62,17 @@ const INERT: VoiceApi = Object.freeze({
   reconnect: noop,
   setPushToTalk: noop,
   talk: noop,
+  settle: settled,
 });
+
+const INERT_PACE: VoicePace = Object.freeze({ live: false, settle: settled });
+
+export const VoicePaceContext = createContext<VoicePace>(INERT_PACE);
+
+/** Whether voice is live, and settle(); not live and settled at once outside a VoiceProvider. */
+export function useVoicePace(): VoicePace {
+  return useContext(VoicePaceContext);
+}
 
 /** The voice API, or an inert one (nothing available, every call a no-op) outside a VoiceProvider. */
 export function useVoice(): VoiceApi {

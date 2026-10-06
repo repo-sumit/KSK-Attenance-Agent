@@ -235,13 +235,14 @@
   --roll-col: 20px; /* the roll-number column of every roster row, so follow-ups align under the name */
   --summary-tile-max: 136px; /* one attendance-summary tile on wide screens: a number and its label, never an empty slab (D-069) */
   --overlay-width-menu: 360px; /* the profile menu anchored under the avatar (600px and up) */
-  --overlay-width-drawer: 380px; /* the demo drawer on the right (600px and up) */
+  --overlay-width-drawer: 380px; /* the demo drawer on the right (600px and up); the Voice Agent widget moves left of it while it is open */
   --toast-max-width: 360px;
-  --overlay-width-voice: 360px; /* the floating voice card from 600px (D-133); phones: the viewport minus the margins */
+  --overlay-width-voice: 360px; /* the floating voice card from 600px (D-147); phones: the viewport minus the corner insets */
+  --overlay-height-voice: 128px; /* the resting voice card from 600px (two lines, D-147): the room inline-footer screens keep for it */
 
   /* ---- Layering ---- */
   --z-header: 10;
-  --z-voice: 20; /* the floating voice button and card (D-133): under menus, sheets, toasts and the demo panel */
+  --z-voice: 20; /* the floating Voice Agent widget (D-147): under menus, sheets, toasts and the demo panel */
   --z-menu: 30;
   --z-sheet: 40;
   --z-toast: 50;
@@ -265,16 +266,17 @@
   --demo-reserve-block-end: 0px;
 
   /*
-   * Room for the floating voice button and card (D-133), set while they show
-   * (html[data-voice-float], VoiceFloat.module.css). Height: the float's
-   * measured height. Block-end: scroll room at the bottom of the scroller for
-   * the button (it overlays the screen's bottom-right corner). Space: the band
-   * above the footer and bottom navigation that the card sits in, so it never
-   * covers a row.
+   * Room for the floating Voice Agent widget (D-147), set while it shows
+   * (html[data-voice-float], VoiceFloat.module.css). Height: the widget's
+   * measured height. Block-end: scroll room at the bottom of the scroller, so
+   * every row can scroll clear of the widget (it overlays the viewport's
+   * bottom-right corner and never changes the layout). Resting: the room for
+   * the resting card whatever the widget's mode (inline-footer screens from
+   * 600px keep it under their dock, so their layout never follows the widget).
    */
   --voice-float-height: 0px;
   --voice-reserve-block-end: 0px;
-  --voice-space: 0px;
+  --voice-reserve-resting: 0px;
 
   color-scheme: light;
 }

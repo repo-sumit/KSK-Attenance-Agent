@@ -12,10 +12,11 @@ export const MAHARASHTRA: StateConfiguration = {
   base: {
     ...PRODUCT_DEFAULTS,
     mapping: { ...PRODUCT_DEFAULTS.mapping, model: 'open' },
-    verification: { ...PRODUCT_DEFAULTS.verification, geoMode: 'fencing', fenceRadiusM: 500, face: true },
+    verification: { ...PRODUCT_DEFAULTS.verification, geoMode: 'fencing', fenceRadiusM: 500, face: true, selfPassReuseMinutes: 10 },
     marking: { ...PRODUCT_DEFAULTS.marking, defaultStatus: 'present' },
     time: { ...PRODUCT_DEFAULTS.time, fencing: true, instituteOverride: true },
-    staff: { ...PRODUCT_DEFAULTS.staff, enabled: true },
+    // Own attendance before students (owner, D-152); a self check from the last 10 minutes also opens the next batch.
+    staff: { ...PRODUCT_DEFAULTS.staff, enabled: true, selfBeforeStudents: true },
     reports: {
       ...PRODUCT_DEFAULTS.reports,
       blocks: [
@@ -34,7 +35,7 @@ export const MAHARASHTRA: StateConfiguration = {
     // Latin digits in Marathi: decided with the product owner (docs/DECISIONS.md D-012).
     i18n: { languages: ['en', 'mr'], defaultLanguage: 'en', userSwitch: true, fallback: 'en', numerals: 'latin' },
     // Voice stays off at the state floor: an institute layer (voice.enabled is overridable) or a demo preset switches it on.
-    voice: { ...PRODUCT_DEFAULTS.voice, languages: ['en', 'mr'] },
+    voice: { ...PRODUCT_DEFAULTS.voice, languages: ['en', 'mr'], voiceNames: { en: 'Achernar', mr: 'Achernar' } },
   },
   overridableKeys: ['time.shiftWindows', 'verification.fenceRadiusM', 'voice.enabled'],
 };

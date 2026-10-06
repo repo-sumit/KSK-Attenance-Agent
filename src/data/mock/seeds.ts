@@ -47,11 +47,16 @@ interface SubmissionSeed {
 
 const DAILY_AND_FIRST_HALF: readonly MarkingSlot[] = [{ kind: 'daily' }, { kind: 'half', part: 1 }];
 
+/**
+ * Today's submissions. Own attendance first (D-152): each submitter marked their own attendance earlier this morning
+ * (STAFF_SELF_TODAY), so the batches of the still-unmarked instructors (Rajesh, Sanjay, Pradeep, Asha) were submitted
+ * by self-marked colleagues of the same trade (U2).
+ */
 const TODAY_SUBMISSIONS: readonly SubmissionSeed[] = [
-  { batchId: 'ele-s1u1', slots: DAILY_AND_FIRST_HALF, time: '09:48', by: 'st-rajesh', absentRolls: [20, 21] },
-  { batchId: 'fit-s1u1', slots: DAILY_AND_FIRST_HALF, time: '09:35', by: 'st-sanjay', absentRolls: [9] },
-  { batchId: 'wel-s1u1', slots: DAILY_AND_FIRST_HALF, time: '09:40', by: 'st-pradeep', absentRolls: [6, 12] },
-  { batchId: 'copa-s1u1', slots: DAILY_AND_FIRST_HALF, time: '09:30', by: 'st-asha', absentRolls: [] },
+  { batchId: 'ele-s1u1', slots: DAILY_AND_FIRST_HALF, time: '09:48', by: 'st-kalpana', absentRolls: [20, 21] },
+  { batchId: 'fit-s1u1', slots: DAILY_AND_FIRST_HALF, time: '09:35', by: 'st-prakash', absentRolls: [9] },
+  { batchId: 'wel-s1u1', slots: DAILY_AND_FIRST_HALF, time: '09:40', by: 'st-sandeep', absentRolls: [6, 12] },
+  { batchId: 'copa-s1u1', slots: DAILY_AND_FIRST_HALF, time: '09:30', by: 'st-swati', absentRolls: [] },
   { batchId: 'ele-s1u2', slots: [{ kind: 'period', periodNo: 2 }], time: '09:52', by: 'st-vikas', absentRolls: [3] },
 ];
 

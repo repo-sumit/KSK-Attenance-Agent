@@ -1,0 +1,9 @@
+/* The fixed band (D-159): white, full bleed, one divider, its content on the screen's column. */
+.band {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-12);
+  padding: var(--space-12) var(--gutter-inline);
+  background: var(--color-background-surface-raised);
+  border-bottom: var(--divider-thin) solid var(--color-border-subtle);
+}

@@ -3,6 +3,7 @@ import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { useServices } from '@/hooks/services';
 import { useSession } from '@/hooks/session';
 import { useSimDelay } from '@/hooks/useSimDelay';
+import { useVoicePace } from '@/hooks/voice';
 import type { CapturedFrame } from '@/services/face';
 import type { LocationCheck } from '@/services/location';
 import type { VerificationNeed, VerificationPurpose } from '@/services/verification';
@@ -21,10 +22,17 @@ export type VerifyPhase =
   | { readonly kind: 'matching' }
   | { readonly kind: 'faced' }
   | { readonly kind: 'problem'; readonly problem: ProblemKind; readonly distanceM?: number; readonly retry: 'all' | 'face' | 'none' }
+  /** A self check from the last few minutes covered this class's check (D-152): no second check, a short hold. */
+  | { readonly kind: 'reused' }
   | { readonly kind: 'passed' };
 
 /** Prototype hold times: long enough to read "Location verified", short enough not to slow marking. */
 const HOLD_MS = 900;
+/** While Voice Agent is live the holds are longer, so the agent's line and the screen keep pace (D-148). */
+const HOLD_MS_VOICE = 1500;
+/** The longest the screen waits for the agent to finish a line: before the camera opens, and after each step passed. */
+const SETTLE_FACING_MS = 4000;
+const SETTLE_STEP_MS = 3000;
 
 /**
  * The verification module (PRD §8) as a state machine the screen renders.
@@ -37,6 +45,10 @@ export function useVerification(purpose: VerificationPurpose, onPassed: () => vo
   const ctx = useSession();
   const { verification } = useServices();
   const hold = useSimDelay();
+  // Voice Agent paces the run (D-148): each wait is capped and ends when the screen closes (the run's signal). Only
+  // what paces it is read (live, settle), so the mic level and captions never re-render the screen.
+  const voice = useVoicePace();
+  const holdMs = voice.live ? HOLD_MS_VOICE : HOLD_MS;
   const j = ctx.journey.verification;
   const [phase, setPhase] = useState<VerifyPhase>({ kind: 'starting' });
   const [attempt, setAttempt] = useState(0);
@@ -66,11 +78,23 @@ export function useVerification(purpose: VerificationPurpose, onPassed: () => vo
       if (signal.aborted) return;
       if (permission === 'prompt') return setPhase({ kind: 'primer', permission: 'camera' });
     }
+    await voice.settle(SETTLE_FACING_MS, signal); // the camera opens after the agent's line, never under it
+    if (signal.aborted) return;
     setPhase({ kind: 'facing' });
   };
 
   const runAll = useEffectEvent(async (signal: AbortSignal, from: 'all' | 'face') => {
     if (from === 'face') return runFace(signal, location);
+    // One check, not two (D-152): the service grants this class's pass from a recent self check, or says no.
+    if (await verification.reuseSelfPass(ctx, purpose)) {
+      if (signal.aborted) return;
+      setPhase({ kind: 'reused' });
+      await Promise.all([hold(holdMs, signal), voice.settle(SETTLE_STEP_MS, signal)]);
+      if (signal.aborted) return;
+      setPhase({ kind: 'passed' });
+      return onPassed();
+    }
+    if (signal.aborted) return;
     if (j.location !== 'none') {
       const permission = await verification.locationPermission();
       if (signal.aborted) return;
@@ -94,7 +118,8 @@ export function useVerification(purpose: VerificationPurpose, onPassed: () => vo
       if (j.location === 'fence') {
         if (j.fencePassPrompt === 'confirm' && loc) return setPhase({ kind: 'confirm', distanceM: loc.location.distanceM ?? 0 });
         setPhase({ kind: 'located' });
-        if (!(await hold(HOLD_MS, signal))) return;
+        await Promise.all([hold(holdMs, signal), voice.settle(SETTLE_STEP_MS, signal)]);
+        if (signal.aborted) return;
       }
       return runFace(signal, loc);
     }
@@ -165,8 +190,9 @@ export function useVerification(purpose: VerificationPurpose, onPassed: () => vo
         return setPhase({ kind: 'problem', problem: limited ? 'faceLimit' : 'face', retry: limited ? 'none' : 'face' });
       }
       setPhase({ kind: 'faced' });
-      if (!(await hold(HOLD_MS, signal))) return;
-      await finish(signal, location);
+      await Promise.all([hold(holdMs, signal), voice.settle(SETTLE_STEP_MS, signal)]);
+      if (signal.aborted) return;
+      await finish(signal, location); // the pass is granted only now, once (INV-16)
     },
     /** The camera couldn't open, or the check couldn't see one clear face. */
     faceFailed: (error: FaceRunFailure) => {

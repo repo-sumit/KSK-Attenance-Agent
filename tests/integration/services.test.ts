@@ -5,7 +5,7 @@ import { rankStandings } from '@/services/reports';
 import { DEFAULT_SIMULATION, StaticSimulationSource } from '@/services/simulation';
 import { MemoryStore } from '@/lib/kv-store';
 import { FixedClock, instantAt } from '@/lib/time';
-import { setup, signIn, TODAY, verify } from '../helpers/app';
+import { SELF_FIRST_OFF, setup, signIn, TODAY, verify } from '../helpers/app';
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
@@ -123,7 +123,7 @@ describe('offline marking and sync (PRD §20)', () => {
     const store = new MemoryStore();
     const clock = new FixedClock(instantAt(TODAY, '10:15'));
     const offline = new StaticSimulationSource({ ...DEFAULT_SIMULATION, speed: 0, online: false });
-    const first = createMockContainer({ store, preferencesStore: new MemoryStore(), clock, simulation: offline });
+    const first = createMockContainer({ store, preferencesStore: new MemoryStore(), clock, simulation: offline, configOverrides: { get: () => SELF_FIRST_OFF } });
     first.services.sync.start();
     const ctx = await signIn(first, 'TR-10432');
     const key = 'ele-s1u2.2026-09-25.daily';

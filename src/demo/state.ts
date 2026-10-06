@@ -18,10 +18,8 @@ export interface DemoState {
   readonly presetId: string | null;
   /** The PRESETS_VERSION the stored preset configuration came from; an older one is re-applied on start-up. */
   readonly presetsVersion: number;
-  /** The persona the presenter picked last (preset, quick login, skip login, demo account): highlighted under "Use demo account". */
+  /** The persona the presenter picked last (Sign in as, a story, a demo account): highlighted under "Demo accounts". */
   readonly persona: PersonaId;
-  /** Advanced: quick login signs straight in instead of opening the login screens. */
-  readonly skipLogin: boolean;
   readonly config: ConfigLayer;
   readonly simulation: SimulationState;
   readonly clock: DemoClockSetting;
@@ -32,13 +30,20 @@ export interface DemoState {
 /** 10:15 AM: Shift 1 open, Shift 2 opens at 2 PM, timetable Period 3 is "Now". */
 export const DEFAULT_DEMO_TIME: LocalTime = '10:15';
 
+/** The everyday story a fresh browser and a Reset demo start with. */
+const OPEN_STORY = PRESETS.find((p) => p.id === 'open')!;
+
+/**
+ * A fresh browser or a Reset demo is the Open instructor story, configuration included (Voice Agent on, as in every
+ * story), so it matches the `presetId` it claims. No PRESETS_VERSION bump: no stored preset changed, and the E2E
+ * fixture stores `config: {}` at the current version on purpose.
+ */
 export const DEFAULT_DEMO_STATE: DemoState = {
   version: 1,
-  presetId: 'open',
+  presetId: OPEN_STORY.id,
   presetsVersion: PRESETS_VERSION,
-  persona: 'open',
-  skipLogin: false,
-  config: {},
+  persona: OPEN_STORY.persona,
+  config: OPEN_STORY.config,
   simulation: DEFAULT_SIMULATION,
   clock: { mode: 'fixed', time: DEFAULT_DEMO_TIME },
   data: 'shared',

@@ -6,7 +6,8 @@ import type { LocalTime } from '@/lib/time';
 import type { BatchGroup, SessionCard } from '@/services/attendance';
 import { sessionProgress } from '@/services/session-progress';
 
-const TOPICS = ['attendance', 'corrections', 'offline', 'packs'] as const;
+// 'staff': own attendance first (D-152) frees the rows the moment the user's own attendance is marked.
+const TOPICS = ['attendance', 'corrections', 'offline', 'packs', 'staff'] as const;
 
 export interface TradeSummary {
   readonly id: string;

@@ -25,7 +25,7 @@ export const PLAN: FlowPlan = {
 
 /** An instructor's capabilities in the Maharashtra demo (D-139). */
 export const CAPS: VoiceCapabilities = {
-  selfAttendance: true, reports: 'instructor', reportSections: { batches: true, atRisk: true, institute: false }, staffMarking: false, staffStatuses: [],
+  selfAttendance: true, reports: 'instructor', reportSections: { batches: true, atRisk: true, institute: false, staff: false }, staffMarking: false, staffStatuses: [],
   announcements: true, downloads: true, navTargets: ['home', 'reports', 'my_attendance', 'offline', 'announcements'],
 };
 
@@ -39,8 +39,8 @@ export const PRINCIPAL_PLAN: VoicePlan = {
   scope: 'institute',
   marking: null,
   capabilities: {
-    selfAttendance: false, reports: 'institute', reportSections: { batches: true, atRisk: true, institute: true }, staffMarking: true,
-    staffStatuses: ['present', 'absent'], announcements: true, downloads: true, navTargets: ['home', 'attendance', 'reports', 'staff_attendance', 'announcements'],
+    selfAttendance: false, reports: 'institute', reportSections: { batches: true, atRisk: true, institute: true, staff: true }, staffMarking: true,
+    staffStatuses: ['present', 'absent'], announcements: true, downloads: true, navTargets: ['home', 'attendance', 'reports', 'offline', 'staff_attendance', 'announcements'],
   },
   languages: ['en', 'mr'],
   openingLanguage: 'en',

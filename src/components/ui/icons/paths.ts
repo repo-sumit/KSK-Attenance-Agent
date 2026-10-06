@@ -20,7 +20,8 @@ export const ICON_PATHS = {
   "chevron-down": [["path",{d:"m6 9 6 6 6-6"}]],
   "chevron-right": [["path",{d:"m9 18 6-6-6-6"}]],
   "chevron-up": [["path",{d:"m18 15-6-6-6 6"}]],
-  "circle": [["circle",{cx:"12",cy:"12",r:"9",strokeDasharray:"3 3"}]],
+  // Not marked: 8 even dashes (pathLength 48); the gaps stay open under round caps at stroke 3 (U13).
+  "circle": [["circle",{cx:"12",cy:"12",r:"9",pathLength:"48",strokeDasharray:"2 4"}]],
   "circle-check": [["circle",{cx:"12",cy:"12",r:"10"}],["path",{d:"m9 12 2 2 4-4"}]],
   "circle-x": [["circle",{cx:"12",cy:"12",r:"10"}],["path",{d:"m15 9-6 6"}],["path",{d:"m9 9 6 6"}]],
   "clipboard-check": [["rect",{width:"8",height:"4",x:"8",y:"2",rx:"1"}],["path",{d:"M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"}],["path",{d:"m9 14 2 2 4-4"}]],
@@ -47,6 +48,7 @@ export const ICON_PATHS = {
   "navigation-off": [["path",{d:"M8.43 8.43 3 11l8 2 2 8 2.57-5.43"}],["path",{d:"M17.39 11.73 22 2l-9.73 4.61"}],["path",{d:"m2 2 20 20"}]],
   "pause": [["rect",{x:"14",y:"3",width:"5",height:"18",rx:"1"}],["rect",{x:"5",y:"3",width:"5",height:"18",rx:"1"}]],
   "pencil": [["path",{d:"M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"}]],
+  "presentation": [["path",{d:"M2 3h20"}],["path",{d:"M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"}],["path",{d:"m7 21 5-5 5 5"}]],
   "printer": [["path",{d:"M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"}],["path",{d:"M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"}],["rect",{x:"6",y:"14",width:"12",height:"8",rx:"1"}]],
   "refresh": [["path",{d:"M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"}],["path",{d:"M21 3v5h-5"}],["path",{d:"M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"}],["path",{d:"M8 16H3v5"}]],
   "rotate-ccw": [["path",{d:"M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"}],["path",{d:"M3 3v5h5"}]],

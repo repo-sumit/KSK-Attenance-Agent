@@ -5,12 +5,13 @@
  * each status by its presence weight (present and OJT 1, half day ½).
  *
  * The Reports page (D-053) reads this month's overview: my attendance, my
- * batches with each batch's students, and the at-risk list. Staff attendance
- * and the correction log keep a detail view with date ranges and print.
+ * batches with each batch's students, the at-risk list and, for the principal,
+ * staff attendance (D-154, report-staff.ts). Staff attendance and the
+ * correction log also keep a detail view with date ranges and print.
  */
 import type { ReportBlock, DateRangeKind } from '@/config/types';
 import { effectiveMarks, type Correction } from '@/domain/attendance';
-import type { Batch, StaffMember, Student, Trade } from '@/domain/entities';
+import type { Batch } from '@/domain/entities';
 import { presenceWeight } from '@/domain/marking';
 import { addDays, compareDates, endOfMonth, shiftMonth, startOfMonth, startOfWeek, toLocalDate, type LocalDate } from '@/lib/time';
 import type { AttendanceRepository, CorrectionRepository, StaffAttendanceRepository } from '@/repositories/interfaces';
@@ -19,94 +20,12 @@ import type { CorrectionLogEntry, CorrectionService } from './corrections';
 import { average, dayShare, pct, shown, standingFigures, studentDays, tradeOf, type Rows } from './report-math';
 import type { AttendanceRegister } from './report-register';
 import { monthlyRegister, registerMonthsFor } from './report-register-service';
-
-export interface DateRange {
-  readonly kind: DateRangeKind;
-  readonly from: LocalDate;
-  readonly to: LocalDate;
-}
-
-/**
- * One student's attendance over the window: the figure exam eligibility turns on (PRD §19.2).
- * A day counts once however many sessions it had (twice daily, periods): its sessions share the day.
- */
-export interface StudentStanding {
-  readonly student: Student;
-  /** Rounded for display; never shows the threshold itself for a student who is below it. */
-  readonly pct: number | null;
-  /** By presence weight (present and OJT 1, half day ½); a day of several sessions gives partial credit. */
-  readonly daysPresent: number;
-  readonly daysMarked: number;
-  /** Below the threshold on the unrounded figure, with at least report.atRiskMinDays marked days. */
-  readonly atRisk: boolean;
-}
-
-export interface BatchOverview {
-  readonly batch: Batch;
-  readonly trade: Trade;
-  readonly students: number;
-  /** Average over every student-day in the window. */
-  readonly pct: number | null;
-  /** The average itself is below the threshold. */
-  readonly low: boolean;
-  readonly atRisk: number;
-}
-
-export interface MonthStat {
-  /** First day of the month. */
-  readonly month: LocalDate;
-  readonly pct: number | null;
-}
-
-export interface MyAttendanceSummary {
-  readonly range: DateRange;
-  /** By presence weight (a half day counts ½), so it agrees with the percentage. */
-  readonly presentDays: number;
-  readonly absentDays: number;
-  readonly workingDays: number;
-  readonly pct: number | null;
-  /** Oldest first, this month last; empty when report.trendMonths is 0. */
-  readonly trend: readonly MonthStat[];
-}
-
-export type LeaderboardSort = 'high_first' | 'low_first';
-
-/** A student with their leaderboard position in the batch (1 = best attendance; null = no marks yet). */
-export interface RankedStanding {
-  readonly standing: StudentStanding;
-  readonly rank: number | null;
-}
-
-/** An at-risk student, with the position the batch's leaderboard gives them (so both lists read the same). */
-export interface AtRiskStudent extends StudentStanding {
-  readonly rank: number | null;
-}
-
-export interface AtRiskGroup {
-  readonly batch: Batch;
-  readonly trade: Trade;
-  /** Only students below the threshold, lowest first (the batch leaderboard's lowest-first order). */
-  readonly students: readonly AtRiskStudent[];
-}
-
-export interface AtRiskReport {
-  readonly range: DateRange;
-  readonly threshold: number;
-  /** Batches with at least one student at risk, in batch order. */
-  readonly groups: readonly AtRiskGroup[];
-  /** How many batches were checked (to say "N other batches have no students at risk"). */
-  readonly batchesChecked: number;
-}
-
-export interface InstituteSummary {
-  readonly range: DateRange;
-  readonly pct: number | null;
-  readonly low: boolean;
-  readonly students: number;
-  readonly batches: number;
-  /** Staff presence this month; null when staff attendance is off. */
-  readonly staffPct: number | null;
-}
+import { staffOverviewFor, staffSummaryFor, type StaffOverview, type StaffStanding } from './report-staff';
+import { staffMonthlyRegister, type StaffRegister } from './report-staff-register';
+import type { DateRange, StudentStanding, BatchOverview, MonthStat, MyAttendanceSummary, LeaderboardSort, RankedStanding, AtRiskReport, InstituteSummary } from './report-types';
+export type { DateRange, StudentStanding, BatchOverview, MonthStat, MyAttendanceSummary, LeaderboardSort, RankedStanding, AtRiskStudent, AtRiskGroup, AtRiskReport, InstituteSummary } from './report-types';
+export type { StaffOverview, StaffStanding } from './report-staff';
+export type { StaffRegister } from './report-staff-register';
 
 /** Blocks that keep a detail screen (range switch + print): the principal's staff and audit reports. */
 export const DETAIL_BLOCKS = ['staff_summary', 'correction_log'] as const satisfies readonly ReportBlock[];
@@ -114,8 +33,8 @@ export type DetailBlock = (typeof DETAIL_BLOCKS)[number];
 export const isDetailBlock = (block: string): block is DetailBlock => (DETAIL_BLOCKS as readonly string[]).includes(block);
 
 export type ReportData =
-  /** present is by weight (a half day counts ½), as in every Present figure. */
-  | { readonly block: 'staff_summary'; readonly staff: ReadonlyArray<{ member: StaffMember; present: number; workingDays: number }>; readonly pct: number | null }
+  /** The staff report card's figures over the chosen range (report-staff.ts), in the staff list's order. */
+  | { readonly block: 'staff_summary'; readonly staff: readonly StaffStanding[]; readonly pct: number | null }
   | { readonly block: 'correction_log'; readonly entries: readonly CorrectionLogEntry[] };
 
 type Delay = (ms: number) => Promise<void>;
@@ -309,6 +228,26 @@ export class ReportService {
     return { range, pct: shown(avg, threshold), low: avg !== null && avg < threshold, students: ctx.data.students.length, batches: ctx.data.batches.length, staffPct };
   }
 
+  /**
+   * The Institute card's trend (U3): report.trendMonths months, oldest first, this month from the 1st to today. Each is
+   * the headline's method over its month (every batch's standings, threshold-safe); null for a month with no records.
+   * Apart from instituteSummary, so voice's overview reads exactly what it read before.
+   */
+  async instituteTrend(ctx: SessionContext): Promise<MonthStat[]> {
+    await this.delay(300);
+    const months = Math.max(0, ctx.config.reports.trendMonths);
+    // The guard is here, not only on the screen: the trend exists only beside the Institute report.
+    if (!months || !ctx.journey.reports.enabled || !ctx.journey.reports.blocks.includes('institute_summary')) return [];
+    const today = toLocalDate(ctx.clock.now());
+    const threshold = ctx.config.reports.eligibilityThresholdPct;
+    const rows = await this.submissions(ctx, ctx.data.batches.map((b) => b.id), { kind: 'custom', from: shiftMonth(today, -(months - 1)), to: today });
+    return Array.from({ length: months }, (_, i) => {
+      const month = shiftMonth(today, i - (months - 1));
+      const inMonth = rows.filter((r) => startOfMonth(r.sub.address.date) === month);
+      return { month, pct: shown(average(ctx.data.batches.flatMap((b) => this.standings(ctx, b, inMonth))), threshold) };
+    });
+  }
+
   /** The months a register can be downloaded for: this month and the one before (first days, newest first). */
   registerMonths(ctx: SessionContext): readonly LocalDate[] {
     return registerMonthsFor(toLocalDate(ctx.clock.now()));
@@ -320,21 +259,24 @@ export class ReportService {
     return monthlyRegister(ctx, request, { batchesInScope: (c) => this.batchesInScope(c), records: (c, ids, range) => this.records(c, ids, range) });
   }
 
+  /** The principal's staff attendance this month (D-154); null unless the staff view and the staff block are on. */
+  async staffOverview(ctx: SessionContext): Promise<StaffOverview | null> {
+    await this.delay(300);
+    return staffOverviewFor(ctx, this.staff);
+  }
+
+  /** The monthly staff register for a month the sheet offers; null outside the staff report's scope. */
+  async staffRegister(ctx: SessionContext, month: LocalDate): Promise<StaffRegister | null> {
+    await this.delay(350);
+    return staffMonthlyRegister(ctx, month, this.staff);
+  }
+
   /** Detail reports (range switch + print). */
   async build(ctx: SessionContext, block: DetailBlock, range: DateRange): Promise<ReportData> {
     await this.delay(300);
     switch (block) {
-      case 'staff_summary': {
-        const people = ctx.data.staff.filter((s) => s.role !== 'office_staff');
-        const records = await this.staff.listBetween(people.map((p) => p.id), range.from, range.to);
-        const staff = people.map((member) => {
-          const mine = records.filter((r) => r.staffId === member.id);
-          return { member, present: mine.reduce((a, r) => a + presenceWeight({ status: r.status }), 0), workingDays: mine.length };
-        });
-        const present = staff.reduce((a, s) => a + s.present, 0);
-        const days = staff.reduce((a, s) => a + s.workingDays, 0);
-        return { block, staff, pct: pct(present, days) };
-      }
+      case 'staff_summary':
+        return staffSummaryFor(ctx, this.staff, range);
       case 'correction_log':
         return { block, entries: await this.correctionService.log(ctx, range.from, range.to) };
     }

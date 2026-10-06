@@ -1,3 +1,4 @@
+import { EarconPlayer } from './earcons';
 import { PcmPlayer } from './player';
 import { startMic, type Mic } from './recorder';
 import type { AudioFactory, AudioIO } from './types';
@@ -18,6 +19,7 @@ export const createBrowserAudio: AudioFactory = () => {
   void inCtx.resume().catch(() => undefined);
   void outCtx.resume().catch(() => undefined);
   const player = new PcmPlayer(outCtx);
+  const cues = new EarconPlayer(outCtx, player);
   let mic: Mic | null = null;
   let enabled = true;
   let closed = false;
@@ -49,6 +51,7 @@ export const createBrowserAudio: AudioFactory = () => {
     play: (pcm) => player.play(pcm),
     flush: () => player.flush(),
     isPlaying: () => player.isPlaying(),
+    earcon: (kind) => !closed && cues.play(kind),
     level: () => mic?.level() ?? 0,
     close() {
       if (closed) return;
@@ -56,7 +59,11 @@ export const createBrowserAudio: AudioFactory = () => {
       mic?.stop();
       mic = null;
       player.flush();
-      void outCtx.close().catch(() => undefined);
+      // the "ended" cue plays out first: the output context closes once it has ended
+      const linger = cues.sounding();
+      const closeOut = () => void outCtx.close().catch(() => undefined);
+      if (linger > 0) setTimeout(closeOut, Math.ceil(linger) + 30);
+      else closeOut();
       void inCtx.close().catch(() => undefined);
     },
   };

@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Student } from '@/domain/entities';
 import {
-  afterMark, askExceptions, confirmRemainingInstruction, confirmSubmitInstruction, countsText, greetingFor, markableNow, nothingOpen, openBatchInstruction,
+  afterMark, askExceptions, confirmRemainingInstruction, confirmSubmitInstruction, countsText, markableNow, nothingOpen, openBatchInstruction,
   readSessions, readTrades, stepHint, verifyingInstruction,
 } from '@/services/voice/instructions';
 import { submittedInstruction } from '@/services/voice/handlers/submit';
@@ -154,14 +154,6 @@ describe('readSessions', () => {
     expect(markableNow(card(batch(1), { status: 'submitted' }))).toBe(false);
     expect(markableNow({ ...CARD, canMark: false })).toBe(false);
   });
-  it('greetingFor: morning before noon, afternoon before 5 pm, evening after', () => {
-    expect(greetingFor(0)).toBe('Good morning');
-    expect(greetingFor(11)).toBe('Good morning');
-    expect(greetingFor(12)).toBe('Good afternoon');
-    expect(greetingFor(16)).toBe('Good afternoon');
-    expect(greetingFor(17)).toBe('Good evening');
-    expect(greetingFor(23)).toBe('Good evening');
-  });
 });
 
 describe('submittedInstruction (D-134)', () => {
@@ -244,12 +236,13 @@ describe('stepHint', () => {
 describe('verifyingInstruction', () => {
   const opening = (location: 'none' | 'background' | 'fence', face: boolean) =>
     verifyingInstruction(view({ plan: { ...PLAN, verification: { location, face, required: true } }, flow: flow({ step: 'VERIFY' }), draft: undefined }));
-  const said = (what: string) =>
-    `Before the student list, the app checks the trainer's ${what}. Say in one short line, in the trainer's language: please look at the screen. Then stop and wait: the app tells you when the list of Shift 1, Unit 2, Electrician is open.`;
-  it('is built from the verification phrase', () => {
-    expect(opening('fence', true)).toBe(said('location and face'));
-    expect(opening('fence', false)).toBe(said('location'));
-    expect(opening('background', true)).toBe(said('face'));
+  const said = (what: string, line: string) =>
+    `Before the student list, the app checks the trainer's ${what}. Say in one short line, in the trainer's language: "${line}" Then stop and wait for the next [APP] message: the app tells you when the list of Shift 1, Unit 2, Electrician is open.`;
+  it('is built from the verification phrase: one short line that names the steps and the camera, never "the screen" (D-148)', () => {
+    expect(opening('fence', true)).toBe(said('location and face', 'Checking your location, then please look at the camera.'));
+    expect(opening('fence', false)).toBe(said('location', 'Checking your location.'));
+    expect(opening('background', true)).toBe(said('face', 'Please look at the camera.'));
+    expect(opening('fence', true)).not.toMatch(/screen/);
     expect(opening('background', false)).toBe('Say just that you are opening Shift 1, Unit 2, Electrician, then wait for the next [APP] message.');
   });
 });

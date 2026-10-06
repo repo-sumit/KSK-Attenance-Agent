@@ -1,20 +1,21 @@
 /**
  * The executor for a voice plan without a marking flow (the principal, D-139): today's state at the institute, the
- * screens of the plan, today's notices, the reports (D-140) and staff attendance (D-141). The one write is mark_staff,
- * after its own confirmation code (./handlers/staff); corrections are never made by voice. There is no batch flow and no
- * draft, so taps and screens have nothing to tell the model; verification events matter only to a check that
- * mark_my_attendance opened (with own attendance in the plan). No browser globals.
+ * screens of the plan, today's notices, the reports (D-140) and staff attendance (D-141, D-156). The writes are
+ * mark_staff and mark_remaining_staff, each after its own confirmation code (./handlers/staff); corrections are never
+ * made by voice. There is no batch flow and no draft, so taps and screens have nothing to tell the model; verification
+ * events matter only to a check that mark_my_attendance opened (with own attendance in the plan). No browser globals.
  */
 import type { VoiceFlowState } from '@/domain/voice/flow';
-import { minutesOfDay } from '@/lib/time';
+import { purposeKey } from '@/services/verification';
 import type { VoiceExecutor } from './executor';
 import { freshBaseState, unknownTool, type BaseContext, type BaseDeps, type BaseHandler } from './handlers/base';
 import { endVoiceSession, getAnnouncements, getToday, loadToday, navigateTool } from './handlers/capabilities';
 import { downloadRegister, getAtRisk, getBatchReport, getReportsOverview, getStudentReport, showReport } from './handlers/reports';
+import { getStaffReport } from './handlers/staff-report';
 import { getMyAttendance, leftMine, markMyAttendance, selfCheckHook } from './handlers/self';
-import { getStaffToday, markStaff, staffRefreshQuestion } from './handlers/staff';
+import { getStaffToday, markRemainingStaff, markStaff, staffRefreshQuestion } from './handlers/staff';
 import { INTERNAL_RESULT } from './handlers/context';
-import { greetingFor } from './instructions';
+import { sessionOpening } from './greeting';
 import { OVERVIEW_RECONNECT_EVENT, OVERVIEW_RESUME_EVENT, overviewReconnectAskEvent, overviewRefreshEvent, overviewStartEvent } from './overview';
 import { buildTools, type ToolName } from './tools';
 
@@ -26,12 +27,14 @@ const HANDLERS: Partial<Readonly<Record<ToolName, BaseHandler>>> = {
   get_batch_report: getBatchReport,
   get_student_report: getStudentReport,
   get_at_risk: getAtRisk,
+  get_staff_report: getStaffReport,
   show_report: showReport,
   download_register: downloadRegister,
   get_my_attendance: getMyAttendance,
   mark_my_attendance: markMyAttendance,
   get_staff_today: getStaffToday,
   mark_staff: markStaff,
+  mark_remaining_staff: markRemainingStaff,
   end_voice_session: endVoiceSession,
 };
 
@@ -49,6 +52,7 @@ export function createOverviewExecutor(deps: BaseDeps): VoiceExecutor {
       deps.bus.emit({ type: 'navigate', href, replace });
     },
     afterNavigate: async () => '',
+    afterSelfMarked: async () => '', // no batch flow to lead on to
   };
   const declared = new Set<string>(buildTools(deps.voice).map((t) => t.name));
 
@@ -71,8 +75,7 @@ export function createOverviewExecutor(deps: BaseDeps): VoiceExecutor {
         const staff = await staffRefreshQuestion(h, pendingQuestion);
         return staff ? overviewReconnectAskEvent(staff) : OVERVIEW_RECONNECT_EVENT;
       }
-      const greeting = greetingFor(Math.floor(minutesOfDay(deps.ctx.clock.now()) / 60));
-      return overviewStartEvent(await loadToday(deps), languageName, greeting);
+      return overviewStartEvent(await loadToday(deps), sessionOpening(deps.ctx, deps.voice, languageName));
     },
     // a pending mark_staff question is asked again with a code for the new connection (the old one is void, D-082)
     async refresh(pendingQuestion, heard = '') {
@@ -87,9 +90,11 @@ export function createOverviewExecutor(deps: BaseDeps): VoiceExecutor {
       leftMine(h, signal.kind === 'self');
       return null;
     },
-    onVerification: (event) => selfCheckHook(h, event),
+    onVerification: (event, quiet) => selfCheckHook(h, event, quiet),
+    checking: () => (state.self ? [purposeKey({ kind: 'self' })] : []),
     voidConfirmations() {
       state.staffTicket = null;
+      state.staffRestTicket = null;
     },
     get endRequested() {
       return state.endRequested;

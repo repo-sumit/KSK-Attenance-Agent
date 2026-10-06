@@ -29,7 +29,7 @@ export function Section({ title, subtitle, children, variant = 'title', classNam
     </Heading>
   );
   return (
-    <section ref={ref} className={cx(styles.section, variant === 'label' && styles.tight, className)} aria-labelledby={title && id ? `${id}-title` : undefined}>
+    <section ref={ref} className={cx(styles.section, variant === 'label' && styles.tight, title && action ? styles.withAction : undefined, className)} aria-labelledby={title && id ? `${id}-title` : undefined}>
       {title && (
         <div className={styles.head}>
           {action ? (

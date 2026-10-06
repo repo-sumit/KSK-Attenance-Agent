@@ -17,7 +17,9 @@ import { useServices } from '@/hooks/services';
 import { useSession } from '@/hooks/session';
 import { useQuery } from '@/hooks/useQuery';
 import { routes } from '@/lib/routes';
-import { roleLine } from '../home/roleLine';
+import { LatinText } from '../common/LatinText';
+import { RoleLine } from '../common/RoleLine';
+import { userRole } from '../home/roleLine';
 import styles from './ProfileMenu.module.css';
 
 const LANGUAGE_NAMES: Readonly<Record<Language, { label: string; lang: string }>> = {
@@ -134,9 +136,13 @@ function MenuContent({ onClose, onLogout, guarded }: MenuContentProps) {
           <h2 id={nameId} ref={nameRef} className={styles.name} tabIndex={-1}>
             <Latin>{ctx.user.name}</Latin>
           </h2>
-          <p className={styles.role}>{roleLine(t, ctx)}</p>
+          <p className={styles.role}>
+            <RoleLine {...userRole(t, ctx)} />
+          </p>
           <p className={styles.meta}>
-            <Latin>{ctx.institute.shortName}</Latin> · <span className={styles.nowrap}>{t('profile.trainerIdValue', { id: ctx.user.trainerId })}</span>
+            <Latin>{ctx.institute.shortName}</Latin> · <span className={styles.nowrap}>
+              <LatinText k="profile.trainerIdValue" params={{ id: ctx.user.trainerId }} latin={['id']} />
+            </span>
           </p>
         </div>
       </div>

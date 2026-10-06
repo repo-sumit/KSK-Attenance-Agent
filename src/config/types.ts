@@ -59,6 +59,11 @@ export interface VerificationConfig {
   readonly face: boolean;
   /** verify.face_retry_limit — null = unlimited */
   readonly faceRetryLimit: number | null;
+  /**
+   * verify.self_pass_reuse_minutes — extension, D-152. A self check passed this many minutes ago (today) also opens a
+   * batch whose check it covers, so the trainer is checked once, not twice. 0 turns reuse off; 0 to 60.
+   */
+  readonly selfPassReuseMinutes: number;
 }
 
 export interface MarkingConfig {
@@ -98,6 +103,11 @@ export interface StaffConfig {
   readonly principalMarking: boolean;
   /** staff.status_set */
   readonly statusSet: readonly StatusCode[];
+  /**
+   * staff.self_before_students — extension, D-152. Students cannot be marked (by tap, voice or URL) until the trainer's
+   * own attendance is marked today. Needs staff.attendance with staff.self_marking.
+   */
+  readonly selfBeforeStudents: boolean;
 }
 
 export interface ReportsConfig {
@@ -113,6 +123,8 @@ export interface ReportsConfig {
   readonly pdfDownload: boolean;
   /** Attendance % below which a student is flagged "at risk" (exam eligibility; PRD gives no value — extension, D-022). */
   readonly eligibilityThresholdPct: number;
+  /** report.staff_threshold_pct — extension, D-154: staff attendance % below which a person's figure is flagged amber. */
+  readonly staffThresholdPct: number;
   /** Order of a batch's student list in Reports: best attendance first, or lowest first (extension, D-053). */
   readonly leaderboardSort: 'high_first' | 'low_first';
   /** Months in the "My attendance" trend, this month included; 0 hides it (extension, D-053). */
@@ -172,8 +184,10 @@ export interface VoiceConfig {
   readonly defaultLanguage: Language;
   /** voice.marking_style — auto: by exception when the default status is Present, else roll call. */
   readonly markingStyle: VoiceMarkingStyle;
-  /** voice.voice_name — Gemini prebuilt voice. */
+  /** voice.voice_name — Gemini prebuilt voice: the fallback for a language without its own voice. */
   readonly voiceName: string;
+  /** voice.voice_names — one fixed prebuilt voice per language, chosen by the session's opening language (D-155). */
+  readonly voiceNames: Readonly<Partial<Record<Language, string>>>;
   /** voice.max_minutes_per_session — cumulative across reconnects. */
   readonly maxMinutesPerSession: number;
   /** voice.idle_timeout_seconds */

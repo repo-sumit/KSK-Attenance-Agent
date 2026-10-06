@@ -5,8 +5,10 @@ import { Icon } from '@/components/ui/icons/Icon';
 import { useToast } from '@/components/ui/Toast';
 import { useI18n } from '@/hooks/i18n';
 import { useServices } from '@/hooks/services';
+import { useJourney } from '@/hooks/session';
 import { useSyncStatus } from '@/hooks/useSync';
 import { cx } from '@/lib/cx';
+import { routes } from '@/lib/routes';
 import styles from './SyncPending.module.css';
 
 export interface SyncPendingItem {
@@ -16,7 +18,10 @@ export interface SyncPendingItem {
 }
 
 interface SyncPendingCardProps {
-  /** The records waiting to sync (Offline data only): batch and when it was locked. */
+  /**
+   * The records waiting to sync (Offline data only): what each is and when it was locked. Without it (Home) the card
+   * links to that list instead, while offline is on ("See what's waiting", D-153).
+   */
   readonly items?: readonly SyncPendingItem[];
   /** A line under the list (the end-of-day rule). */
   readonly note?: string;
@@ -30,13 +35,15 @@ interface SyncPendingCardProps {
  * time) · syncing · couldn't sync (after a Sync now) · all synced.
  * Home and Offline data show it; the connectivity bar leaves sync to it there.
  * Offline data also lists the waiting records inside it, with the end-of-day
- * rule they are measured against (RPT-4); Home keeps the compact card.
+ * rule they are measured against (RPT-4); Home keeps the compact card, with a
+ * link to that list while offline is on (D-153).
  */
 export function SyncPendingCard({ items, note }: SyncPendingCardProps) {
   const { t, format } = useI18n();
   const toast = useToast();
   const { sync } = useServices();
   const status = useSyncStatus();
+  const offline = useJourney().offline.enabled;
   const titleId = useId();
   const busy = status.phase === 'syncing';
   const waiting = status.pending > 0 || busy;
@@ -64,6 +71,7 @@ export function SyncPendingCard({ items, note }: SyncPendingCardProps) {
           };
 
   const details = !done && !!items?.length;
+  const seeWaiting = !items && offline;
   return (
     <section className={cx(styles.card, view.tone)} aria-labelledby={titleId}>
       <div className={cx(styles.inner, details && styles.hasDetails)}>
@@ -104,6 +112,11 @@ export function SyncPendingCard({ items, note }: SyncPendingCardProps) {
             >
               {busy ? t('syncCard.syncing') : tapFailed ? t('common.tryAgain') : t('common.syncNow')}
             </Button>
+            {seeWaiting && (
+              <Button variant="ghost" size="md" fullWidth href={routes.offline}>
+                {t('offline.seeWaiting')}
+              </Button>
+            )}
           </div>
         )}
       </div>

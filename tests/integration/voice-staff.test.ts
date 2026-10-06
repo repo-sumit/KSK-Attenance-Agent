@@ -75,9 +75,10 @@ describe('own attendance by voice (D-141): the instructor', () => {
     const r = await s.call('mark_my_attendance');
     expect(r).toMatchObject({ ok: true, step: 'VERIFY' });
     expect(r.instruction).toBe(
-      "The location and face check for the trainer's own attendance is on the screen now. Say in one short line: please follow the screen. Then wait for the next [APP] message; the app marks it when the check passes.",
+      "The location and face check for the trainer's own attendance is on the screen now. Say in one short line, in the trainer's language: \"Checking your location, then please look at the camera.\" Then stop and wait for the next [APP] message; the app marks it when the check passes.",
     );
     expect(s.nav()).toEqual(['/me/attendance']);
+    expect(s.ex.checking()).toEqual(['self']); // a pause made now resumes on the pass (D-148)
     expect(await s.env.app.services.staffAttendance.myRecord(s.ctx)).toBeUndefined();
 
     // the screen's own check reports, as for a batch: the face camera, then the pass
@@ -86,10 +87,13 @@ describe('own attendance by voice (D-141): the instructor', () => {
     const loc = await s.env.app.services.verification.checkLocation(s.ctx);
     await s.env.app.services.verification.grant(s.ctx, { kind: 'self' }, loc.ok ? loc.value : undefined);
     const text = await s.ex.onVerification({ type: 'granted', purpose: 'self' });
-    expect(text).toBe("[APP] The check passed and the trainer's own attendance is marked present at 10:15 am. Say so in one short line.");
+    // the same turn leads on to the students (D-152): the trades with a batch open and not yet marked
+    expect(text).toMatch(/^\[APP\] The check passed and the trainer's own attendance is marked present at 10:15 am\. Say so in one short line\. Then, in the same turn: The trainer sees 5 trades/);
     const record = await s.env.app.services.staffAttendance.myRecord(s.ctx);
     expect(record).toMatchObject({ status: 'present', source: 'self' });
-    expect(s.marked()).toEqual([expect.objectContaining({ type: 'self_marked', record })]);
+    // the saved record (it may have synced meanwhile, while the lead-on read the board)
+    expect(s.marked()).toEqual([expect.objectContaining({ type: 'self_marked', record: expect.objectContaining({ id: record!.id, status: 'present', source: 'self' }) })]);
+    expect(s.ex.checking()).toEqual([]);
     // done: a later pass event says nothing more
     expect(await s.ex.onVerification({ type: 'granted', purpose: 'self' })).toBeNull();
   });
@@ -97,7 +101,7 @@ describe('own attendance by voice (D-141): the instructor', () => {
   it('silent geo-tagging is never named (PRD 8.1): the face check alone, or just the screen when nothing else is checked', async () => {
     const tagged = await voiceFor('TR-10432', { verification: { geoMode: 'tagging', face: true } });
     expect((await tagged.call('mark_my_attendance')).instruction).toBe(
-      "The face check for the trainer's own attendance is on the screen now. Say in one short line: please follow the screen. Then wait for the next [APP] message; the app marks it when the check passes.",
+      "The face check for the trainer's own attendance is on the screen now. Say in one short line, in the trainer's language: \"Please look at the camera.\" Then stop and wait for the next [APP] message; the app marks it when the check passes.",
     );
     const only = await voiceFor('TR-10432', { verification: { geoMode: 'tagging', face: false } });
     const r = await only.call('mark_my_attendance');
@@ -149,10 +153,12 @@ describe('own attendance by voice (D-141): the instructor', () => {
   it('with a pass already (or no check): it is saved at once, My attendance opens and shows it', async () => {
     const s = await voiceFor('TR-10432', NO_CHECK);
     const r = await s.call('mark_my_attendance');
-    expect(r).toMatchObject({ ok: true, marked: true, time: '10:15 am', instruction: "The trainer's own attendance is marked present at 10:15 am. Say so in one short line." });
+    expect(r).toMatchObject({ ok: true, marked: true, time: '10:15 am' });
+    expect(r.instruction).toMatch(/^The trainer's own attendance is marked present at 10:15 am\. Say so in one short line\. Then, in the same turn: /);
     const record = await s.env.app.services.staffAttendance.myRecord(s.ctx);
     expect(record).toMatchObject({ status: 'present', source: 'self' });
-    expect(s.events.map((e) => e.type)).toEqual(['navigate', 'self_marked']); // the screen mounts after the navigation and replays it
+    // the "saved" cue as the record is saved (D-156), then the screen: it mounts after the navigation and replays self_marked
+    expect(s.events.map((e) => e.type)).toEqual(['saved', 'navigate', 'self_marked']);
     expect(s.nav()).toEqual(['/me/attendance']);
   });
 
@@ -173,10 +179,12 @@ describe('staff attendance by voice (D-141): the principal', () => {
     const r = await s.call('get_staff_today');
     expect(r).toMatchObject({ ok: true, total: rows.length, marked: rows.length - unmarked.length, not_marked: unmarked.length, counts: { PRESENT: rows.length - unmarked.length, ABSENT: 0 } });
     const named = r.not_marked_names as { id: string; name: string }[];
-    expect(named.map((n) => n.id)).toEqual(unmarked.slice(0, 5).map((u) => u.member.id));
+    // the principal's own row first, as "you" (D-156), then the staff list's order
+    const order = [...unmarked.filter((u) => u.member.id === 'st-anil'), ...unmarked.filter((u) => u.member.id !== 'st-anil')];
+    expect(named.map((n) => n.id)).toEqual(order.slice(0, 5).map((u) => u.member.id));
     expect(named.length).toBeLessThanOrEqual(5);
     expect(r.instruction).toBe(
-      `Staff today: ${rows.length} in all; ${rows.length - unmarked.length} marked (${rows.length - unmarked.length} present, 0 absent); ${unmarked.length} not marked yet: ${named.map((n) => n.name).join(', ')}${unmarked.length > 5 ? ` and ${unmarked.length - 5} more` : ''}. Answer in one or two short sentences with these counts and names, then ask whether to mark anyone.`,
+      `Staff today: ${rows.length} in all; ${rows.length - unmarked.length} marked (${rows.length - unmarked.length} present, 0 absent); ${unmarked.length} not marked yet: ${named.map((n) => n.name).join(', ')}${unmarked.length > 5 ? ` and ${unmarked.length - 5} more` : ''}. Answer in one or two short sentences with these counts and names, saying "you" for the principal's own attendance (never their name), then ask whether to mark anyone.`,
     );
   });
 
@@ -203,7 +211,8 @@ describe('staff attendance by voice (D-141): the principal', () => {
     const done = await s.call('mark_staff', { staff: 'Pradeep Gawde', status: 'absent', confirm_token: fresh.confirm_token });
     const left = (await s.env.app.services.staffAttendance.day(s.ctx)).filter((r) => !r.record).length;
     expect(done).toMatchObject({ ok: true, staff: { id: 'st-pradeep', name: 'Pradeep Gawde' }, status: 'ABSENT', not_marked: left });
-    expect(done.instruction).toBe(`Pradeep Gawde is marked absent for today. ${left} staff not marked yet. Say so in one short line.`);
+    // the next person not marked yet is offered in the same turn (D-156; voice-staff-flow.test.ts)
+    expect(done.instruction).toMatch(new RegExp(`^Pradeep Gawde is marked absent for today\\. ${left} staff not marked yet; next is `));
     const saved = (await s.env.app.services.staffAttendance.day(s.ctx)).find((r) => r.member.id === 'st-pradeep')?.record;
     expect(saved).toMatchObject({ status: 'absent', source: 'principal' });
     // used once

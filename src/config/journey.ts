@@ -53,6 +53,8 @@ export interface Journey {
     /** "My attendance" card on the instructor home. */
     readonly selfCard: boolean;
     readonly selfCanMark: boolean;
+    /** Own attendance before students (D-152): no batch opens until this user's own attendance is marked today. */
+    readonly selfFirst: boolean;
     /** Students / Staff switch for the principal. */
     readonly principalStaffView: boolean;
     readonly principalCanMark: boolean;
@@ -67,12 +69,23 @@ export interface Journey {
     readonly dateRanges: readonly DateRangeKind[];
     readonly pdfDownload: boolean;
     readonly eligibilityThresholdPct: number;
+    readonly staffThresholdPct: number;
     readonly leaderboardSort: 'high_first' | 'low_first';
     readonly trendMonths: number;
     readonly windowDays: number;
   };
-  /** Offline data lives under Reports (D-056): whenever offline is on, the Reports tab exists. */
-  readonly offline: { readonly enabled: boolean; readonly manualRefresh: boolean; readonly multiSelect: boolean; readonly maxBatches: number | null };
+  /**
+   * Offline data lives under Reports (D-056): whenever offline is on, the Reports tab exists. Offline is for every
+   * user, the principal included (D-153). `packs`: this user may hold downloaded batches, i.e. can mark students
+   * (for the principal, `identity.principalCanMarkStudents`); without packs Offline data is the sync status only.
+   */
+  readonly offline: {
+    readonly enabled: boolean;
+    readonly packs: boolean;
+    readonly manualRefresh: boolean;
+    readonly multiSelect: boolean;
+    readonly maxBatches: number | null;
+  };
   readonly announcements: { readonly enabled: boolean };
   readonly language: { readonly available: readonly Language[]; readonly canSwitch: boolean };
   /** Voice Agent (extension, D-078–D-089). Exists wherever it is enabled, the institute home included (D-139). */
@@ -82,6 +95,7 @@ export interface Journey {
     readonly defaultLanguage: Language;
     readonly markingStyle: VoiceMarkingStyle;
     readonly voiceName: string;
+    readonly voiceNames: Readonly<Partial<Record<Language, string>>>;
     readonly limits: { readonly sessionMinutes: number; readonly idleSeconds: number; readonly dailyMinutes: number };
   };
   readonly navTabs: readonly NavTab[];
@@ -97,6 +111,7 @@ export function deriveJourney(config: AppConfiguration, user: StaffMember, acces
   const location: LocationStep = geo === 'off' ? 'none' : geo === 'tagging' ? 'background' : 'fence';
   const face = config.verification.face;
   const staff = config.staff;
+  const selfCanMark = staff.enabled && staff.selfMarking && !isPrincipal;
 
   const roleBlocks = isPrincipal ? PRINCIPAL_BLOCKS : INSTRUCTOR_BLOCKS;
   const blocks = roleBlocks
@@ -106,7 +121,9 @@ export function deriveJourney(config: AppConfiguration, user: StaffMember, acces
     .filter((b) => b !== 'correction_log' || config.identity.principalCanCorrect);
 
   const reportsEnabled = config.reports.enabled && blocks.length > 0;
-  const offlineEnabled = config.offline.enabled && !isPrincipal;
+  const offlineEnabled = config.offline.enabled;
+  // Packs only where the user can mark students (INV-25): the journey is the one place that decides it from the role.
+  const offlinePacks = offlineEnabled && (!isPrincipal || config.identity.principalCanMarkStudents);
   // validateConfiguration never runs at runtime (only in tests), so voice fails closed: it is absent unless
   // its languages are a valid subset of the screen languages.
   const voiceLanguagesOk =
@@ -145,7 +162,8 @@ export function deriveJourney(config: AppConfiguration, user: StaffMember, acces
     timeFencing: config.time.fencing,
     staff: {
       selfCard: staff.enabled && !isPrincipal,
-      selfCanMark: staff.enabled && staff.selfMarking && !isPrincipal,
+      selfCanMark,
+      selfFirst: staff.selfBeforeStudents && selfCanMark,
       principalStaffView: staff.enabled && isPrincipal,
       principalCanMark: staff.enabled && staff.principalMarking && isPrincipal,
       statusSet: staff.statusSet,
@@ -159,12 +177,14 @@ export function deriveJourney(config: AppConfiguration, user: StaffMember, acces
       dateRanges: config.reports.dateRanges,
       pdfDownload: config.reports.pdfDownload,
       eligibilityThresholdPct: config.reports.eligibilityThresholdPct,
+      staffThresholdPct: config.reports.staffThresholdPct,
       leaderboardSort: config.reports.leaderboardSort,
       trendMonths: config.reports.trendMonths,
       windowDays: config.reports.windowDays,
     },
     offline: {
       enabled: offlineEnabled,
+      packs: offlinePacks,
       manualRefresh: config.offline.manualRefresh,
       multiSelect: config.offline.multiSelect,
       maxBatches: config.offline.maxBatches,
@@ -177,6 +197,7 @@ export function deriveJourney(config: AppConfiguration, user: StaffMember, acces
       defaultLanguage: config.voice.defaultLanguage,
       markingStyle: config.voice.markingStyle,
       voiceName: config.voice.voiceName,
+      voiceNames: config.voice.voiceNames,
       limits: {
         sessionMinutes: config.voice.maxMinutesPerSession,
         idleSeconds: config.voice.idleTimeoutSeconds,

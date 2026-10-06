@@ -3,12 +3,12 @@ import { STATUS_REGISTRY, type StatusCode } from '@/domain/status';
 import { oneDecimal } from '@/services/report-math';
 import type { BatchRegister, RegisterCell, RegisterDay, RegisterRow } from '@/services/report-register';
 import { escapeHtml as e } from './escape';
-import type { DocContext } from './registerParts';
+import type { DocContext, SheetContext } from './registerParts';
 
 export const STATUS_CLASS: Readonly<Record<StatusCode, string>> = { present: 's-p', absent: 's-a', leave: 's-l', half_day: 's-h', ojt: 's-o' };
 
 /** "½", "1", "1½": a count of sessions where a half day counts half. */
-function sessionCount(c: DocContext, n: number): string {
+function sessionCount(c: SheetContext, n: number): string {
   const whole = Math.floor(n);
   const half = n - whole >= 0.5;
   if (!half) return c.format.number(whole);
@@ -16,7 +16,7 @@ function sessionCount(c: DocContext, n: number): string {
 }
 
 /** A day's cell: one status as its letter; several sessions with one status as that letter; mixed sessions as "present/sessions". */
-export function cellView(c: DocContext, cell: RegisterCell | null): { readonly cls: string; readonly text: string } {
+export function cellView(c: SheetContext, cell: RegisterCell | null): { readonly cls: string; readonly text: string } {
   if (!cell || cell.statuses.length === 0) return { cls: '', text: '' };
   const [first] = cell.statuses;
   if (cell.statuses.every((s) => s === first)) return { cls: STATUS_CLASS[first], text: c.t(`register.letter.${first}`) };
@@ -24,7 +24,7 @@ export function cellView(c: DocContext, cell: RegisterCell | null): { readonly c
   return { cls: present === 0 ? 's-a' : 's-m', text: `${sessionCount(c, present)}/${c.format.number(cell.statuses.length)}` };
 }
 
-function dayClasses(day: RegisterDay): string {
+export function dayClasses(day: RegisterDay): string {
   const out: string[] = [];
   if (day.weekday === 0) out.push('sun');
   if (day.kind === 'none' && day.weekday !== 0) out.push('none');
@@ -33,7 +33,15 @@ function dayClasses(day: RegisterDay): string {
   return out.join(' ');
 }
 
-const cls = (...names: string[]) => names.filter(Boolean).join(' ');
+export const cls = (...names: string[]) => names.filter(Boolean).join(' ');
+
+/** The day columns of the two header rows: the date over its narrow weekday, carrying each day's classes. */
+export function dayHeads(c: SheetContext, days: readonly RegisterDay[], dayCls: readonly string[]): { readonly dates: string; readonly weekdays: string } {
+  return {
+    dates: days.map((d, i) => `<th class="${cls('d', dayCls[i])}" scope="col">${e(c.format.number(Number(d.date.slice(8))))}</th>`).join(''),
+    weekdays: days.map((d, i) => `<th class="${cls('w', dayCls[i])}" scope="col">${e(c.weekday(d.date))}</th>`).join(''),
+  };
+}
 
 function remark(c: DocContext, row: RegisterRow): string {
   if (row.atRisk) return `<td class="rmk risk">⚠ ${e(c.t('register.remarkAtRisk'))}</td>`;
@@ -65,15 +73,16 @@ function studentRow(c: DocContext, batch: BatchRegister, row: RegisterRow, index
 export function registerTable(c: DocContext, batch: BatchRegister): string {
   const { t, format } = c;
   const dayCls = batch.days.map(dayClasses);
+  const heads = dayHeads(c, batch.days, dayCls);
   const cols = `<colgroup><col class="k-no"><col class="k-roll"><col class="k-name">${'<col class="k-day">'.repeat(batch.days.length)}<col class="k-fig"><col class="k-fig"><col class="k-fig"><col class="k-pct"><col class="k-rmk"></colgroup>`;
   const head1 =
     `<tr class="h1"><th class="sticky k1" rowspan="2" scope="col">${e(t('register.col.no'))}</th>` +
     `<th class="sticky k2" rowspan="2" scope="col">${e(t('register.col.roll'))}</th>` +
     `<th class="name l sticky k3" rowspan="2" scope="col">${e(t('register.col.student'))}</th>` +
-    batch.days.map((d, i) => `<th class="${cls('d', dayCls[i])}" scope="col">${e(format.number(Number(d.date.slice(8))))}</th>`).join('') +
+    heads.dates +
     (['present', 'absent', 'leave', 'pct'] as const).map((k) => `<th rowspan="2" scope="col">${e(t(`register.col.${k}`))}</th>`).join('') +
     `<th class="l" rowspan="2" scope="col">${e(t('register.col.remark'))}</th></tr>`;
-  const head2 = `<tr class="h2">${batch.days.map((d, i) => `<th class="${cls('w', dayCls[i])}" scope="col">${e(c.weekday(d.date))}</th>`).join('')}</tr>`;
+  const head2 = `<tr class="h2">${heads.weekdays}</tr>`;
   const body = batch.rows.map((row, i) => studentRow(c, batch, row, i, dayCls)).join('');
   const sum = (pick: (r: RegisterRow) => number) => batch.rows.reduce((a, r) => a + pick(r), 0);
   const foot =

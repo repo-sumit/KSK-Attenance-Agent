@@ -48,13 +48,14 @@ export class BatchPackService {
     await Promise.all(batchIds.map((id) => this.rosters?.getBatchRoster(ctx.institute.id, id)));
   }
 
+  /** Only a batch this user can mark online, and only while they may hold packs at all (D-153, INV-25). */
   private inScope(ctx: SessionContext, batchId: string): boolean {
-    return ctx.journey.isPrincipal || ctx.access.batchIds.has(batchId);
+    return ctx.journey.offline.packs && ctx.access.batchIds.has(batchId);
   }
 
-  /** Changing what is on the phone needs offline to be on for this user (hiding the screen is never the only guard). */
+  /** Changing what is on the phone needs packs for this user (hiding the screen is never the only guard). */
   private mayChange(ctx: SessionContext): boolean {
-    return ctx.journey.offline.enabled;
+    return ctx.journey.offline.packs;
   }
 
   /** Downloaded batches with their sync state: what is on this phone (getDownloadedBatches). */

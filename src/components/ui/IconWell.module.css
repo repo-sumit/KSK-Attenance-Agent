@@ -21,10 +21,10 @@
   align-items: center;
   justify-content: center;
   flex: none;
+  width: 40px;
+  height: 40px;
   border-radius: var(--radius-lg);
 }
-.t40 { width: 40px; height: 40px; }
-.t48 { width: 48px; height: 48px; }
 .blue { background: var(--tint-blue-bg); color: var(--tint-blue-icon); }
 .green { background: var(--tint-green-bg); color: var(--tint-green-icon); }
 

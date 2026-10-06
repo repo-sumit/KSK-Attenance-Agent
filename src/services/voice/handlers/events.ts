@@ -24,7 +24,7 @@ import { nextSessions, submittedInstruction } from './submit';
  * being marked moves the flow and is told to the model; 'opened' and 'closed' are rebuilds and discards.
  * (No tap reaches here while a submit saves the draft: MarkingDraftService holds it until the submit ends.)
  * A tap that leaves everyone marked moves to the review and asks the submit question with a new code. While the
- * session is quiet (paused for Use screen, or not live) the flow follows the tap and nothing is said: no code is
+ * session is quiet (paused by Pause, or not live) the flow follows the tap and nothing is said: no code is
  * issued and the screen is not moved to the review; on Resume, get_status asks with the review as usual.
  */
 export function draftChangeEvent(h: HandlerContext, change: DraftChange, quiet = false): string | null {
@@ -76,8 +76,8 @@ function hrefOf(signal: ScreenSignal): string | null {
 /**
  * A submitted batch of today on screen (a tap on its card, or its list or review reached another way): it is locked,
  * said as select_batch says it, never an open-batch instruction. The screen left any open batch (its marks stay,
- * D-083), and a live draft of the submitted batch is closed. Another day's record (the record screen's Today /
- * Yesterday switch) is only browsing: nothing is said and the flow stays.
+ * D-083), and a live draft of the submitted batch is closed. Another day's record (a typed URL) is only browsing:
+ * nothing is said and the flow stays.
  */
 function lockedOnScreen(h: HandlerContext, card: SessionCard): string | null {
   if (card.address.date !== toLocalDate(h.deps.ctx.clock.now())) return null;
@@ -119,7 +119,7 @@ async function openedOnScreen(h: HandlerContext, key: string, quiet: () => boole
  * Tap navigation (MVP tapTrade, tapBatch, tapBack*, tapReview, tapBackToList). A screen that voice just
  * navigated to, or that already matches the flow, says nothing. A trade or session id from the route only
  * selects among the cards and trades the services return. `quiet` (read when the question would be asked): the
- * session would drop the text (paused for Use screen, or not live), so, as for a quiet tap, the flow follows the
+ * session would drop the text (paused by Pause, or not live), so, as for a quiet tap, the flow follows the
  * screen but no code is issued and no screen is pushed; Resume's get_status asks with the review.
  * A trade-switcher tap (Home's local trade, no route of its own) leaves what voice knows of the screen alone.
  */
@@ -204,7 +204,7 @@ export async function screenEvent(h: HandlerContext, signal: ScreenSignal, quiet
         return null;
       }
       // another batch's record or result while a batch is open by voice: only browsing, nothing is said and the
-      // open batch stays (the record screen's Today / Yesterday switch, a report)
+      // open batch stays: a report, or another day's record (a typed URL)
       if (marking(flow.step)) return null;
       // another batch's record or result: a submitted batch opened on screen
       const card = await h.deps.attendance.findCard(ctx, signal.sessionKey);

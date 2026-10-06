@@ -1,0 +1,11 @@
+{
+  "preset": "batch",
+  "lang": "en",
+  "viewport": [1280, 800],
+  "voice": "Rishi",
+  "simulation": { "camera": "simulated" },
+  "lead": 34,
+  "steps": [{ "say": "Aditi is absent", "gap": 14 }],
+  "tail": 6,
+  "shotEvery": 2
+}

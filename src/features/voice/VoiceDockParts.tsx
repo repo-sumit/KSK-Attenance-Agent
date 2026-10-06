@@ -15,46 +15,67 @@ export const STATUS: Readonly<Record<VoiceStatus, { readonly icon: IconName; rea
   connecting: { icon: 'refresh', tone: 'info', key: 'voice.status.connecting' },
   listening: { icon: 'mic', tone: 'success', key: 'voice.status.listening' },
   speaking: { icon: 'audio-lines', tone: 'info', key: 'voice.status.speaking' },
+  working: { icon: 'clock', tone: 'info', key: 'voice.status.working' },
   paused: { icon: 'pause', tone: 'neutral', key: 'voice.status.paused' },
   reconnecting: { icon: 'refresh', tone: 'warning', key: 'voice.status.reconnecting' },
   error: { icon: 'mic-off', tone: 'error', key: 'voice.status.error' },
   ended: { icon: 'mic-off', tone: 'neutral', key: 'voice.status.ended' },
 };
 
+/** The face camera holds the mic off while the session is live (D-086, D-148): voice comes back by itself. */
+const CAMERA = { icon: 'mic-off', tone: 'neutral', key: 'voice.status.camera' } as const;
+
 /**
- * What the dock shows for a session state. With push-to-talk on, the microphone is shut until Hold to talk is held
- * (session.ts opens it only when `!pushToTalk || talking`), so a "listening" session reads "Hold to talk" (mic off)
- * until the trainer holds the button; while it is held, and in every other status, the plain status shows.
+ * What the dock shows for a session state. While a face camera holds the mic (`micHeld`), a live session reads "Mic
+ * off for face check". With push-to-talk on, the microphone is shut until Hold to talk is held (session.ts opens it
+ * only when `!pushToTalk || talking`), so a "listening" session reads "Hold to talk" (mic off) until the trainer holds
+ * the button; while it is held, and in every other status, the plain status shows.
  */
-export function dockStatus(state: Pick<VoiceState, 'status' | 'pushToTalk' | 'talking'>): { readonly icon: IconName; readonly tone: Tone; readonly key: MessageKey } {
+export function dockStatus(state: Pick<VoiceState, 'status' | 'pushToTalk' | 'talking' | 'micHeld'>): { readonly icon: IconName; readonly tone: Tone; readonly key: MessageKey } {
+  if (cameraHolds(state)) return CAMERA;
   if (state.status === 'listening' && state.pushToTalk && !state.talking) return { icon: 'mic-off', tone: 'neutral', key: 'voice.status.holdToTalk' };
   return STATUS[state.status];
 }
 
+/** A live session (listening, speaking or working) whose mic a face camera holds off. */
+export const cameraHolds = (state: Pick<VoiceState, 'status' | 'micHeld'>): boolean =>
+  state.micHeld === 'camera' && (state.status === 'listening' || state.status === 'speaking' || state.status === 'working');
+
 /**
- * The card's layout (D-136). TALL: room for the second caption line, push-to-talk and the hints without opening the
- * card (a 320×568 phone leaves about 424px for the roster). WIDE: room for the status on its own line, above the
- * labelled actions (a short laptop window at 1280×688 is wide, not tall). Narrow and short phones get the one compact
- * row and open the rest on demand. The server, and a browser without matchMedia, read both as true.
+ * The card's layout (D-147). WIDE (600px and up): the two-line card, 360px wide at the corner, with the status on its
+ * own line above the labelled actions. Below 600px, at every phone height: the one compact row (at most 88px). Either
+ * way it rests closed; the extras open from the status. The server, and a browser without matchMedia, read wide.
  */
-const TALL = '(min-width: 360px) and (min-height: 700px)';
-const WIDE = '(min-width: 400px)';
+const WIDE = '(min-width: 600px)';
 const hasMatchMedia = () => typeof window !== 'undefined' && typeof window.matchMedia === 'function';
-function subscribeTo(media: string, onChange: () => void): () => void {
+function subscribeWide(onChange: () => void): () => void {
   if (!hasMatchMedia()) return () => undefined;
-  const query = window.matchMedia(media);
+  const query = window.matchMedia(WIDE);
   query.addEventListener('change', onChange);
   return () => query.removeEventListener('change', onChange);
 }
-const matches = (media: string) => !hasMatchMedia() || window.matchMedia(media).matches;
-const subscribeTall = (onChange: () => void) => subscribeTo(TALL, onChange);
-const subscribeWide = (onChange: () => void) => subscribeTo(WIDE, onChange);
+const matchesWide = () => !hasMatchMedia() || window.matchMedia(WIDE).matches;
 const onServer = () => true;
-export function useCardLayout(): { readonly tall: boolean; readonly wide: boolean } {
-  const tall = useSyncExternalStore(subscribeTall, () => matches(TALL), onServer);
-  const wide = useSyncExternalStore(subscribeWide, () => matches(WIDE), onServer);
-  return { tall, wide };
+export function useCardLayout(): { readonly wide: boolean } {
+  return { wide: useSyncExternalStore(subscribeWide, matchesWide, onServer) };
 }
+
+/**
+ * The transcriber's markers, never real speech: "<no speech detected>", "<noise>", "{pause}". A turn with no words is
+ * written as one ("<no speech>{pause}" too); a real line may carry one around it.
+ */
+const MARKERS = /<[^<>]*>|\{[^{}]*\}/g;
+const words = (text: string) => text.replace(MARKERS, ' ').replace(/\s+/g, ' ').trim();
+
+/**
+ * An agent caption worth showing: it has a letter, in any script, once the transcriber's markers are gone. The live
+ * model answers the camera-on text with a filler turn ("<no speech detected>", "<no speech>{pause}", "...", "---"); its
+ * line is never shown and never opens the card (D-148).
+ */
+export const speakable = (text: string): boolean => /\p{L}/u.test(words(text));
+
+/** The captions the card shows: every trainer line, and the agent lines that say something. */
+export const visibleCaptions = (captions: readonly Caption[]): readonly Caption[] => captions.filter((c) => c.who !== 'agent' || speakable(c.text));
 
 /** The newest caption, and the newest one of the other speaker (older, so it is read first). */
 export function lastCaptions(captions: readonly Caption[]): { readonly latest?: Caption; readonly other?: Caption } {
@@ -83,11 +104,11 @@ export function LevelBar({ level }: { readonly level: number }) {
   );
 }
 
-/** One caption, one line: "You: …" / "Sahayak: …", cut with an ellipsis. */
+/** One caption, one line: "You: …" / "Voice Agent: …", cut with an ellipsis (an agent line without the transcriber's markers). */
 export function CaptionLine({ caption, who }: { readonly caption: Caption; readonly who: string }) {
   return (
     <p className={styles.caption}>
-      <span className={styles.who}>{who}:</span> {caption.text}
+      <span className={styles.who}>{who}:</span> {caption.who === 'agent' ? words(caption.text) : caption.text}
     </p>
   );
 }
@@ -115,10 +136,10 @@ export function Hint({ icon, children, compact = false }: { readonly icon: IconN
   );
 }
 
-/** A secondary action in the card's row (Use screen, Resume voice): its icon, and the label that names it. */
-export function RowAction({ icon, label, onClick }: { readonly icon: IconName; readonly label: string; readonly onClick: () => void }) {
+/** A secondary action in the card's row (Pause, Resume voice): its icon, its label, and its name when the label is shorter. */
+export function RowAction({ icon, label, name, onClick }: { readonly icon: IconName; readonly label: string; readonly name?: string; readonly onClick: () => void }) {
   return (
-    <Button variant="secondary" size="md" leadingIcon={icon} className={styles.rowAction} onClick={onClick}>
+    <Button variant="secondary" size="md" leadingIcon={icon} className={styles.rowAction} aria-label={name} onClick={onClick}>
       {label}
     </Button>
   );
@@ -137,7 +158,7 @@ export function HoldToTalk({
   readonly label: string;
   readonly talking: boolean;
   readonly talk: (down: boolean) => void;
-  /** In the compact card's closed row: no icon, so it fits where Use screen sits at 320px. */
+  /** In the compact card's closed row: the row's primary action (its icon alone below 480px, as Pause). */
   readonly inRow?: boolean;
 }) {
   const down = useRef(false);
@@ -169,9 +190,9 @@ export function HoldToTalk({
   return (
     <Button
       size="md"
-      leadingIcon={inRow ? undefined : 'mic'}
+      leadingIcon="mic"
       variant={talking ? 'primary' : 'secondary'}
-      className={styles.hold}
+      className={cx(styles.hold, inRow && styles.rowAction)}
       onPointerDown={onPointerDown}
       onPointerUp={() => press(false)}
       onPointerCancel={() => press(false)}

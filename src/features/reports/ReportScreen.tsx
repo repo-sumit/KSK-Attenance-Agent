@@ -1,10 +1,10 @@
 'use client';
 import { useRouter, useSearchParams } from 'next/navigation';
+import type { ReactNode } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
-import { EmptyState } from '@/components/ui/EmptyState';
-import { Latin } from '@/components/ui/Latin';
+import { EmptyNote, EmptyState } from '@/components/ui/EmptyState';
 import { Segmented } from '@/components/ui/Segmented';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { useToast } from '@/components/ui/Toast';
@@ -17,12 +17,24 @@ import { useSession } from '@/hooks/session';
 import { useQuery } from '@/hooks/useQuery';
 import { isEmbeddedWebView } from '@/lib/platform';
 import { routes } from '@/lib/routes';
+import { cx } from '@/lib/cx';
 import { toLocalDate } from '@/lib/time';
 import { isDetailBlock } from '@/services/reports';
 import { DETAIL_META, buildReport, rangeLabel } from './reportRows';
 import styles from './Report.module.css';
 
 const RANGE_KEYS = { day: 'reports.day', week: 'reports.week', month: 'reports.month', custom: 'reports.custom' } as const;
+
+/** Short parts on one line, each kept whole, a "·" after every part but the last (a wrapped line never starts with it). */
+function Parts({ parts, className, as: Tag = 'span' }: { readonly parts: readonly ReactNode[]; readonly className?: string; readonly as?: 'span' | 'p' }) {
+  return (
+    <Tag className={cx(className, styles.parts, parts.length > 1 && styles.joined)}>
+      {parts.map((part, i) => (
+        <span key={i}>{part}</span>
+      ))}
+    </Tag>
+  );
+}
 
 /**
  * A detail report (staff attendance, correction log): range switch, a one-line
@@ -88,20 +100,21 @@ export function ReportScreen() {
       ) : (
         <>
           <Card>
-            <p className={styles.summary}>{built.summary}</p>
+            <Parts className={styles.summary} parts={built.summary} as="p" />
           </Card>
           {built.rows.length === 0 ? (
-            <EmptyState icon="chart" title={t('reports.noData')} />
+            <EmptyNote>{t('reports.noData')}</EmptyNote>
           ) : (
             <Card as="ul" divided className={styles.rows}>
               {built.rows.map((row) => (
                 <li key={row.id} className={styles.row}>
                   <span className={styles.text}>
-                    <span className={styles.title}><Latin>{row.title}</Latin></span>
-                    <span className={styles.sub}><Latin>{row.subtitle}</Latin></span>
+                    <span className={styles.title}>{row.title}</span>
+                    <Parts className={styles.sub} parts={row.subtitle} />
                   </span>
                   <Badge tone={row.tone} icon={row.icon} size="md">
                     {row.value}
+                    {row.sr && <span className="visually-hidden">{` · ${row.sr}`}</span>}
                   </Badge>
                 </li>
               ))}

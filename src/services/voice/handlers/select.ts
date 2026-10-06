@@ -15,6 +15,7 @@ import { purposeKey } from '@/services/verification';
 import { needText } from '../app-events';
 import { markableNow, nextOpening, nothingOpen, openBatchInstruction, readSessions, readTrades, stepHint, verifyingInstruction, type VoiceView } from '../instructions';
 import { nameText, sessionLabel, spokenTime } from '../labels';
+import { SELF_FIRST_INSTRUCTION } from '../staff-texts';
 import type { ToolResult } from '../tools';
 import type { CheckMemory } from './base';
 import { batchEntries, batchInfo, fail, snapshot, str, tradeList, wrongStep, type Handler, type HandlerContext } from './context';
@@ -50,7 +51,14 @@ function showTrade(h: HandlerContext, tradeId: string, from: VoiceView['flow']):
   h.deps.bus.emit({ type: 'show_trade', tradeId });
 }
 
+/** Own attendance first (journey.staff.selfFirst, D-152): no trade or batch opens while the trainer's own record is missing. */
+async function selfFirstBlocks(h: HandlerContext): Promise<boolean> {
+  const { ctx, staffAttendance } = h.deps;
+  return ctx.journey.staff.selfFirst && !(await staffAttendance.myRecord(ctx));
+}
+
 export const selectTrade: Handler = async (h, args) => {
+  if (await selfFirstBlocks(h)) return fail('SELF_FIRST', SELF_FIRST_INSTRUCTION);
   const before = await h.view();
   const asked = str(args.trade);
   const match = resolveTrade(asked, before.trades);
@@ -93,6 +101,8 @@ function refusal(h: HandlerContext, view: VoiceView, card: SessionCard, error: O
       return fail('NO_ACCESS', `${label} is not one of the trainer's batches, so it cannot be marked here. Say so in one line and ask for another batch.`);
     case 'not_downloaded':
       return fail('OFFLINE_NOT_DOWNLOADED', `There is no connection and ${label} is not saved on this phone, so it cannot be opened now. Say so in one line.`);
+    case 'self_first':
+      return fail('SELF_FIRST', SELF_FIRST_INSTRUCTION);
     case 'needs_connection':
       return fail('NEEDS_CONNECTION', `There is no connection, and marking needs one. Say so in one line.`);
     default: {
@@ -108,6 +118,7 @@ function precheck(card: SessionCard, online: boolean): OpenRosterError | null {
   if (card.status === 'future') return 'window_not_open';
   if (card.status === 'closed') return 'window_closed';
   if (!card.canMark) return 'no_access';
+  if (card.selfFirst) return 'self_first'; // own attendance first (D-152)
   return !online && !card.downloaded ? 'not_downloaded' : null;
 }
 
@@ -183,6 +194,8 @@ async function inOtherTrade(h: HandlerContext, view: VoiceView, asked: string): 
 }
 
 export const selectBatch: Handler = async (h, args) => {
+  // before the step and the words are looked at, as select_trade does (the card's own self_first refusal stays behind it)
+  if (await selfFirstBlocks(h)) return fail('SELF_FIRST', SELF_FIRST_INSTRUCTION);
   const { plan } = h.deps;
   const view = await h.view();
   const asked = str(args.batch);
@@ -220,7 +233,9 @@ async function openSession(h: HandlerContext, view: VoiceView, card: SessionCard
   const { ctx, plan, verification } = h.deps;
   const refused = precheck(card, h.deps.isOnline());
   if (refused) return refusal(h, view, card, refused);
-  const passed = !plan.verification.required || (await verification.hasPass(ctx, { kind: 'session', key: card.key }));
+  // as the gateway does first (D-152): a recent self pass that covers the batch's checks grants its pass, no second check
+  const target = { kind: 'session', key: card.key } as const;
+  const passed = !plan.verification.required || (await verification.hasPass(ctx, target)) || (await verification.reuseSelfPass(ctx, target));
   if (!passed) {
     const waiting = h.state.flow.step === 'VERIFY' && h.state.flow.sessionKey === card.key;
     return waiting ? { ok: true, step: 'VERIFY', instruction: stepHint(view) } : toGateway(h, card);

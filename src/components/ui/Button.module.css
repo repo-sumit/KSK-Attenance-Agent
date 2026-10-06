@@ -41,7 +41,7 @@
   letter-spacing: var(--ls-title-small);
 }
 .sm {
-  min-height: 36px;
+  min-height: var(--control-height-sm);
   padding: 0 var(--space-8);
   gap: var(--space-4);
   font: var(--type-title-small);

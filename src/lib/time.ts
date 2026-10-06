@@ -34,6 +34,21 @@ export function minutesOfDay(instant: Date): number {
   return d.getUTCHours() * 60 + d.getUTCMinutes();
 }
 
+export type DayPart = 'morning' | 'afternoon' | 'evening' | 'night';
+
+/**
+ * The IST time of day an instant falls in (greetings, D-151): morning 05:00–11:59, afternoon 12:00–16:59,
+ * evening 17:00–20:59, night 21:00–04:59.
+ */
+export function dayPart(instant: Date): DayPart {
+  const minutes = minutesOfDay(instant);
+  if (minutes < 5 * 60) return 'night';
+  if (minutes < 12 * 60) return 'morning';
+  if (minutes < 17 * 60) return 'afternoon';
+  if (minutes < 21 * 60) return 'evening';
+  return 'night';
+}
+
 export function parseTime(time: LocalTime): number {
   const [h, m] = time.split(':').map(Number);
   return h * 60 + m;

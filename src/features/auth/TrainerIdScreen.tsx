@@ -10,7 +10,7 @@ import { useT } from '@/hooks/i18n';
 import { useServices } from '@/hooks/services';
 import { routes } from '@/lib/routes';
 import { finishLogin } from './finishLogin';
-import { LoginAssistPicker, useAssistAccountValue } from './LoginAssistPicker';
+import { useAssistAccountValue } from './LoginAssistList';
 import { useLoginFlow } from './LoginFlow';
 import styles from './Login.module.css';
 
@@ -30,7 +30,7 @@ export function TrainerIdScreen() {
   const flow = useLoginFlow();
   const institute = flow.institute;
   const picked = useAssistAccountValue('trainerId');
-  // An account picked from the login assist at step 1 brings its Trainer ID (the user still presses Continue).
+  // An account picked from the demo accounts in this attempt brings its Trainer ID (the user still presses Continue).
   const [trainerId, setTrainerId] = useState(params.get('tid') ?? picked.value ?? '');
   const [error, setError] = useState<string>();
   /** What the Continue button is waiting for: the Trainer ID lookup, then (without a confirmation step) the sign-in. */
@@ -45,20 +45,26 @@ export function TrainerIdScreen() {
     event.preventDefault();
     if (!trainerId.trim() || busy) return;
     setBusy('checking');
-    const result = await services.auth.lookupInstructor(institute.id, trainerId);
-    if (!result.ok) {
+    try {
+      const result = await services.auth.lookupInstructor(institute.id, trainerId);
+      if (!result.ok) {
+        setBusy(null);
+        setError(result.error === 'invalid_format' ? t('login.trainerInvalid') : t('login.trainerNotFound', { institute: institute.shortName }));
+        return;
+      }
+      flow.setInstructor(result.value);
+      if (services.configuration.base().identity.instructorConfirmStep) {
+        setBusy(null);
+        router.push(routes.loginIdentity);
+        return;
+      }
+      setBusy('signingIn');
+      router.replace(await finishLogin(services, institute.id, result.value.id));
+    } catch {
+      // The server unreachable (lookup or sign-in): say so and let the user try again, never a stuck Continue.
       setBusy(null);
-      setError(result.error === 'invalid_format' ? t('login.trainerInvalid') : t('login.trainerNotFound', { institute: institute.shortName }));
-      return;
+      setError(t('login.lookupFailed'));
     }
-    flow.setInstructor(result.value);
-    if (services.configuration.base().identity.instructorConfirmStep) {
-      setBusy(null);
-      router.push(routes.loginIdentity);
-      return;
-    }
-    setBusy('signingIn');
-    router.replace(await finishLogin(services, institute.id, result.value.id));
   };
 
   return (
@@ -99,14 +105,6 @@ export function TrainerIdScreen() {
           enterKeyHint="go"
           latin
           error={error}
-        />
-        <LoginAssistPicker
-          field="trainerId"
-          inputId={INPUT_ID}
-          onFill={(v) => {
-            setTrainerId(v);
-            setError(undefined);
-          }}
         />
       </form>
     </ScreenLayout>

@@ -99,6 +99,36 @@ describe('ScriptedLiveTransport', () => {
     void conn;
   });
 
+  it('SilentAudio plays only while the script says so (setPlaying, D-148)', () => {
+    const t = new ScriptedLiveTransport();
+    const audio = new SilentAudio(t);
+    expect(audio.isPlaying()).toBe(false);
+    t.setPlaying(true);
+    expect(audio.isPlaying()).toBe(true);
+    t.setPlaying(false);
+    expect(audio.isPlaying()).toBe(false);
+  });
+
+  it('a session that ends (its audio closes) leaves nothing playing for the next one: a playing(true) never outlives it', () => {
+    const t = new ScriptedLiveTransport();
+    const first = new SilentAudio(t);
+    t.setPlaying(true);
+    expect(first.earcon('saved')).toBe(false);
+    first.close(); // the session's teardown (stop or a lost connection)
+    const next = new SilentAudio(t);
+    expect(next.isPlaying()).toBe(false);
+    expect(next.earcon('ready')).toBe(true);
+  });
+
+  it('the earcons record keeps only the newest 100 cues (a long scripted demo)', () => {
+    const t = new ScriptedLiveTransport();
+    const audio = new SilentAudio(t);
+    for (let n = 0; n < 150; n++) audio.earcon(n % 2 ? 'saved' : 'ready');
+    audio.earcon('ended');
+    expect(t.earcons).toHaveLength(100);
+    expect(t.earcons.at(-1)).toBe('ended');
+  });
+
   it('SilentAudio fails the next startMic once with the queued denial, then succeeds; play counts chunks', async () => {
     const t = new ScriptedLiveTransport();
     const audio = new SilentAudio(t);

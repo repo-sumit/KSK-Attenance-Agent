@@ -3,6 +3,7 @@
  * every state and under every configuration, so they live here — enforced by the
  * services and repositories, never only by hiding buttons in the UI.
  */
+import type { LocationStep } from '@/config/journey';
 import type { AppConfiguration } from '@/config/types';
 import type { AttendanceSubmission, SessionAddress, StaffAttendanceRecord } from './attendance';
 import type { StaffMember, StudentId } from './entities';
@@ -10,7 +11,7 @@ import { completenessIssues, isMarkAllowed, type CompletenessIssue } from './mar
 import { marksEqual, type Mark, type StatusCode } from './status';
 import type { WindowState } from './schedule';
 import { err, ok, type Result } from '@/lib/result';
-import type { LocalDate } from '@/lib/time';
+import { toLocalDate, type LocalDate } from '@/lib/time';
 
 export type SubmitError =
   | 'already_submitted'
@@ -21,7 +22,8 @@ export type SubmitError =
   | 'not_verified'
   | 'incomplete'
   | 'invalid_mark'
-  | 'roster_mismatch';
+  | 'roster_mismatch'
+  | 'self_first';
 
 export interface SubmitCheck {
   readonly address: SessionAddress;
@@ -34,6 +36,8 @@ export interface SubmitCheck {
   readonly marks: Readonly<Record<StudentId, Mark>>;
   readonly rosterIds: readonly StudentId[];
   readonly config: AppConfiguration;
+  /** Own attendance before students (D-152); absent = not checked here. */
+  readonly selfFirst?: SelfFirstCheck;
 }
 
 /** Everything that must be true before a marking session can be written. */
@@ -46,6 +50,10 @@ export function checkSubmission(c: SubmitCheck): Result<true, SubmitError> {
   // INV-20: hard time fence, no grace period.
   if (c.windowState === 'future') return err('window_not_open');
   if (c.windowState === 'closed') return err('window_closed');
+  if (c.selfFirst) {
+    const self = checkSelfFirst(c.selfFirst);
+    if (!self.ok) return self;
+  }
   // INV-16: verification runs before the list is shown; submission re-checks it.
   if (c.verificationRequired && !c.verified) return err('not_verified');
 
@@ -57,6 +65,51 @@ export function checkSubmission(c: SubmitCheck): Result<true, SubmitError> {
   if (issues.length) return err('incomplete', { issues });
   if (Object.values(c.marks).some((m) => !isMarkAllowed(m, c.config.marking))) return err('invalid_mark');
   return ok(true);
+}
+
+export interface SelfFirstCheck {
+  /** journey.staff.selfFirst */
+  readonly required: boolean;
+  /** This user's own staff record for today, from any source (a principal's mark counts). */
+  readonly ownRecordToday: StaffAttendanceRecord | undefined;
+}
+
+/** D-152: with the rule on, no batch opens or submits until the user's own attendance is marked today. */
+export function checkSelfFirst(c: SelfFirstCheck): Result<true, 'self_first'> {
+  return c.required && !c.ownRecordToday ? err('self_first') : ok(true);
+}
+
+/** The checks a verification pass covered (the journey's location step and face, when it was granted). */
+export interface PassChecks {
+  readonly location: LocationStep;
+  readonly face: boolean;
+}
+
+export interface SelfPassReuseCheck {
+  readonly pass: { readonly date: LocalDate; readonly grantedAt?: string; readonly checks?: PassChecks } | undefined;
+  /** What the batch's own check would run now. */
+  readonly needs: PassChecks;
+  readonly now: Date;
+  readonly today: LocalDate;
+  /** verification.selfPassReuseMinutes; 0 = off. */
+  readonly minutes: number;
+}
+
+const LOCATION_RANK: Readonly<Record<PassChecks['location'], number>> = { none: 0, background: 1, fence: 2 };
+
+/**
+ * D-152 (amends D-028): a self pass from today, no older than `minutes` and covering every check the batch needs, opens
+ * the batch without a second check. A pass without its time or its checks is never reused.
+ */
+export function canReuseSelfPass(c: SelfPassReuseCheck): boolean {
+  const { pass } = c;
+  if (c.minutes <= 0 || !pass?.grantedAt || !pass.checks || pass.date !== c.today) return false;
+  const at = new Date(pass.grantedAt);
+  if (Number.isNaN(at.getTime()) || toLocalDate(at) !== c.today) return false;
+  const age = c.now.getTime() - at.getTime();
+  if (age < 0 || age > c.minutes * 60_000) return false;
+  if (c.needs.face && !pass.checks.face) return false;
+  return LOCATION_RANK[pass.checks.location] >= LOCATION_RANK[c.needs.location];
 }
 
 export type CorrectionError =

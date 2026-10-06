@@ -15,9 +15,10 @@ execSync('npx next build', {
 });
 
 // The Supabase seeder and the panel's Data row are demo code too (Task 11): the daily seed call and the reset button.
-const needles = ['__KSK_DEMO__', 'Demo controls', 'Reset everything', 'Use demo account', 'Quick login', 'Skip login screens', 'Voice model', 'ksk_seed_day', 'Reset shared demo data'];
+// The login screen's demo accounts (Task 11, round 2): their heading and hint come only from the demo source.
+const needles = ['__KSK_DEMO__', 'Demo controls', 'Reset everything', 'Demo accounts', 'Tap a person: you still confirm the institute and the person.', 'Voice model', 'Show the login screens', 'ksk_seed_day', 'Reset shared demo data'];
 // The demo stylesheet turns on the floating trigger's reserves; a demo-off build must not ship it.
-const cssNeedles = ['html[data-demo-float]', '--demo-reserve-block:40px', '--demo-reserve-block-end:72px'];
+const cssNeedles = ['html[data-demo-float]', '--demo-reserve-block:calc(', '--demo-reserve-block-end:72px'];
 // Product code that must survive: stripping the demo must not take Voice Agent (or its scripted seam) with it.
 const keep = new Map([['Resume voice', false]]);
 const hits = [];

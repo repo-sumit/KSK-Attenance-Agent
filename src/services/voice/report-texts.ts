@@ -80,7 +80,20 @@ export interface OverviewFacts extends ReportRules {
   readonly thisMonth: number | null;
   readonly lastMonth: number | null;
   /** The principal's headline (null for an instructor). */
-  readonly institute: { readonly avg_pct: number | null; readonly students: number; readonly batches: number; readonly staff_pct: number | null } | null;
+  readonly institute: InstituteHeadline | null;
+}
+
+/**
+ * The principal's headline. `staff_range`: this month's staff attendance from the staff report where the screen has the
+ * Staff attendance section (its Institute card then shows no staff figure, D-154), else the Institute card's staff
+ * presence over the report window.
+ */
+export interface InstituteHeadline {
+  readonly avg_pct: number | null;
+  readonly students: number;
+  readonly batches: number;
+  readonly staff_pct: number | null;
+  readonly staff_range: 'this_month' | 'window';
 }
 
 export const NO_BATCHES = 'The trainer has no batches in their reports yet. Say so in one short line.';
@@ -97,7 +110,7 @@ export function overviewInstruction(o: OverviewFacts): string {
   const risk = o.atRiskTotal === null ? null : `${plural(o.atRiskTotal, 'student')} at risk (below ${o.threshold}%)`;
   if (o.institute) {
     const i = o.institute;
-    const staff = i.staff_pct === null ? '' : `, staff presence ${i.staff_pct}%`;
+    const staff = i.staff_pct === null ? '' : i.staff_range === 'this_month' ? `; staff attendance this month ${i.staff_pct}%` : `, staff presence ${i.staff_pct}%`;
     const rest = joined([trend && `${trend[0].toUpperCase()}${trend.slice(1)}`, risk]);
     return answer(`The institute ${window}: ${pctText(i.avg_pct)} average, ${plural(i.students, 'student')} in ${plural(i.batches, 'batch', 'batches')}${staff}.${extremes(o.batches)}${rest ? ` ${rest}.` : ''}`);
   }
@@ -173,3 +186,41 @@ export const registerInstruction = (target: string, month: string, wholeTrade: b
 
 /** A batch the words did not settle: ask which, with the choices. */
 export const batchChoices = (labels: readonly string[]): string => labels.join('; ');
+
+/** One staff member in the staff report: the principal's own row is "you" (D-156). */
+export interface StaffFigure {
+  readonly name: string;
+  readonly self: boolean;
+  readonly pct: number | null;
+  readonly days_present: number;
+  readonly days_marked: number;
+}
+
+export interface StaffReportFacts {
+  /** This month's staff attendance, by presence weight (null with no staff day marked yet). */
+  readonly pct: number | null;
+  readonly threshold: number;
+  /** The lowest five with a figure, lowest first. */
+  readonly lowest: readonly StaffFigure[];
+  readonly below: number;
+  /** Staff with no day marked this month (no figure yet). */
+  readonly noMarks: number;
+  readonly notMarkedToday: number;
+}
+
+const staffFigureText = (s: StaffFigure): string => `${s.self ? 'you' : nameText(s.name)} ${pctText(s.pct)} (${s.days_present} of ${s.days_marked} days)`;
+
+/** get_staff_report (D-156): the month's figure, the lowest, who is below the threshold, today's gaps; then the offer to show it. */
+export function staffReportInstruction(f: StaffReportFacts): string {
+  const today = f.notMarkedToday ? ` ${f.notMarkedToday} staff not marked today.` : ' Every staff member is marked today.';
+  if (f.pct === null) return `Staff attendance this month: no staff days marked yet.${today} Say so in one short line.`;
+  const lowest = f.lowest.length ? ` Lowest: ${f.lowest.map(staffFigureText).join(', ')}.` : '';
+  const below = f.below ? ` ${plural(f.below, 'staff member')} below ${f.threshold}%.` : ` Nobody is below ${f.threshold}%.`;
+  const none = f.noMarks ? ` ${plural(f.noMarks, 'staff member')} with no days marked yet.` : '';
+  const you = f.lowest.some((s) => s.self) ? ' Say "you" for the principal\'s own figure, never their name.' : '';
+  return `Staff attendance this month: ${f.pct}% (the threshold is ${f.threshold}%).${lowest}${below}${none}${today} Answer in one or two short sentences: the month's figure first, then the lowest two or three; never work out a figure yourself.${you} ${SHOW_OFFER}`;
+}
+
+/** download_register for the staff register: the sheet is open on the staff scope; the download needs the principal's tap. */
+export const staffRegisterInstruction = (month: string): string =>
+  `The staff register for ${month} is open on the screen. Tell the trainer to tap Download to save it, in one short line.`;

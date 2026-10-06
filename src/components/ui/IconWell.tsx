@@ -12,11 +12,11 @@ export function IconWell({ icon, tone, size = 88, settle = false }: { readonly i
   );
 }
 
-/** Rounded-square icon chip used in cards and list rows. */
-export function IconTile({ icon, tint = 'blue', size = 48 }: { readonly icon: IconName; readonly tint?: 'blue' | 'green'; readonly size?: 40 | 48 }) {
+/** Rounded-square icon chip used in cards and list rows: one size everywhere, 40px with a 20px icon (D-159). */
+export function IconTile({ icon, tint = 'blue' }: { readonly icon: IconName; readonly tint?: 'blue' | 'green' }) {
   return (
-    <span className={cx(styles.tile, styles[tint], styles[`t${size}`])} aria-hidden="true">
-      <Icon name={icon} size={size === 48 ? 24 : 20} />
+    <span className={cx(styles.tile, styles[tint])} aria-hidden="true">
+      <Icon name={icon} size={20} />
     </span>
   );
 }

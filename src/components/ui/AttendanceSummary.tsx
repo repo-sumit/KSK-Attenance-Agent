@@ -64,7 +64,11 @@ interface AttendanceSummaryProps {
   readonly labels: AttendanceSummaryLabels;
   /** Blank-default marking and staff: a Not marked tile that counts down to 0. */
   readonly showNotMarked?: boolean;
-  /** Context beside the tiles on wide screens and above them on phones (the date and closing time, the batch). */
+  /**
+   * Context beside the tiles on wide screens and above them on phones (the date and closing time, a record's status).
+   * Every summary in a fixed band has one (D-069, D-159), so from 600px its tiles end in line with the rows' status
+   * column.
+   */
   readonly lead?: ReactNode;
   /** hero: tinted tiles on a white surface · raised: tinted tiles on the grey page. */
   readonly surface?: 'hero' | 'raised';
@@ -94,7 +98,8 @@ export function AttendanceSummary({ counts, statuses, labels, showNotMarked = fa
             <div key={item.key} className={cx(styles.tile, styles[item.tone])} style={{ '--summary-span': spans[i] } as CSSProperties} data-summary-item={item.key}>
               <span className={cx(styles.value, 'tnum')}>{labels.number(item.value)}</span>
               <span className={styles.label}>
-                {item.icon && <Icon name={item.icon} size={12} strokeWidth={3} />}
+                {/* The dashed Not marked ring keeps the rows' stroke, so it reads as the same ring (never a solid "O"). */}
+                {item.icon && <Icon name={item.icon} size={12} strokeWidth={item.key === 'not_marked' ? 2 : 3} />}
                 <span>{item.label}</span>
               </span>
             </div>
@@ -103,5 +108,32 @@ export function AttendanceSummary({ counts, statuses, labels, showNotMarked = fa
         {note && <p className={styles.note}>{note}</p>}
       </div>
     </div>
+  );
+}
+
+/**
+ * The quiet line a summary's lead shows (the roster's date and closing time, the staff day): an icon, then short parts
+ * that never split, each but the last followed by "·", so a line that wraps never starts with the dot.
+ */
+export function SummaryMeta({ icon, parts }: { readonly icon: IconName; readonly parts: readonly ReactNode[] }) {
+  return (
+    <p className={styles.meta}>
+      <Icon name={icon} size={14} />
+      {parts.map((part, i) => (
+        <span key={i} className={styles.metaPart}>
+          {part}
+        </span>
+      ))}
+    </p>
+  );
+}
+
+/** A date for SummaryMeta: "Monday, 28 September" while the lead is 340px or wider, "Mon, 28 Sep" below that. */
+export function SummaryDate({ long, short }: { readonly long: string; readonly short: string }) {
+  return (
+    <span>
+      <span className={styles.long}>{long}</span>
+      <span className={styles.short}>{short}</span>
+    </span>
   );
 }

@@ -15,7 +15,7 @@ import type { FlowPlan } from '@/domain/voice/plan';
 import type { SessionCard } from '../attendance';
 import type { DraftSnapshot } from '../marking-draft';
 import {
-  batchLabel, countsOf, nameText, sessionLabel, shortLabel, slotLabel, spokenTime, studentView, verificationPhrase, word, type StudentView,
+  batchLabel, checkLine, countsOf, nameText, sessionLabel, shortLabel, slotLabel, spokenTime, studentView, verificationPhrase, word, type StudentView,
 } from './labels';
 
 /** What the texts are built from: the flow plan, the flow state and, once a batch is open, its draft. */
@@ -93,12 +93,6 @@ export const askExceptions = (_view: VoiceView): string => 'ask "anyone else?" (
 
 /** A session the trainer can mark right now (D-134): its window is open and the trainer may mark it. */
 export const markableNow = (card: SessionCard): boolean => card.status === 'open' && card.canMark;
-
-/** The greeting for an IST hour of the injected clock. */
-export function greetingFor(hour: number): 'Good morning' | 'Good afternoon' | 'Good evening' {
-  if (hour < 12) return 'Good morning';
-  return hour < 17 ? 'Good afternoon' : 'Good evening';
-}
 
 /** The earliest window still to open today, as the agent says it ("2:00 pm"), when one is. */
 export function nextOpening(cards: readonly SessionCard[]): string | undefined {
@@ -247,5 +241,5 @@ export function verifyingInstruction(view: VoiceView): string {
   const label = selectedLabel(view) ?? 'the batch';
   const phrase = verificationPhrase(view.plan);
   if (!phrase) return `Say just that you are opening ${label}, then wait for the next [APP] message.`;
-  return `Before the student list, the app checks the trainer's ${phrase}. Say in one short line, in the trainer's language: please look at the screen. Then stop and wait: the app tells you when the list of ${label} is open.`;
+  return `Before the student list, the app checks the trainer's ${phrase}. Say in one short line, in the trainer's language: "${checkLine(phrase)}" Then stop and wait for the next [APP] message: the app tells you when the list of ${label} is open.`;
 }

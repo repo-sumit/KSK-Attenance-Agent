@@ -13,21 +13,21 @@ import type { FlowPlan, NavTarget, VoicePlan } from '@/domain/voice/plan';
 import { parseModelStatus, safeText } from '@/domain/voice/types';
 import type { DraftChange, DraftSnapshot } from '@/services/marking-draft';
 import { purposeKey, type VerificationEvent } from '@/services/verification';
-import { minutesOfDay } from '@/lib/time';
-import { autoOpenEvent, freshStart, reconnectEvent, refreshEvent, RESUME_EVENT, sessionStartEvent } from './app-events';
-import { awayReconnectEvent, awayRefreshEvent, awayResumeEvent, selfStartEvent } from './overview';
-import { confirmSubmitInstruction, greetingFor, markableNow } from './instructions';
-import { countsOf, sessionLabel, word } from './labels';
+import { reconnectEvent, refreshEvent, RESUME_EVENT } from './app-events';
+import { awayReconnectEvent, awayRefreshEvent, awayResumeEvent } from './overview';
+import { confirmSubmitInstruction } from './instructions';
+import { createExecutorStart } from './executor-start';
+import { countsOf, word } from './labels';
 import { buildTools, type ToolCall, type ToolName, type ToolResult } from './tools';
-import { voiceDebug } from './debug';
 import {
   createHandlerContext, dropStaleSubmit, fail, has, INTERNAL_RESULT, markingStep, sameId, str, verifyingBatch, type Args, type Handler, type HandlerContext, type MarkingDeps,
 } from './handlers/context';
 import { endVoiceSession, getAnnouncements, navigateTool } from './handlers/capabilities';
 import { downloadRegister, getAtRisk, getBatchReport, getReportsOverview, getStudentReport, showReport } from './handlers/reports';
+import { getStaffReport } from './handlers/staff-report';
 import { unknownTool } from './handlers/base';
 import { getMyAttendance, leftMine, markMyAttendance, selfCheckHook } from './handlers/self';
-import { getStaffToday, markStaff, staffRefreshQuestion } from './handlers/staff';
+import { getStaffToday, markRemainingStaff, markStaff, staffRefreshQuestion } from './handlers/staff';
 import { draftChangeEvent, screenEvent, verificationHook } from './handlers/events';
 import { markAttendance, markRemaining, setStudentStatus, skipStudent, startRollCall } from './handlers/marking';
 import { getTrades, goBack, selectBatch, selectTrade, verifyAgain } from './handlers/select';
@@ -60,10 +60,10 @@ export interface VoiceExecutor {
   kickoff(kind: 'start' | 'reconnect', languageName: string, pendingQuestion?: string | null): Promise<string>;
   /** `heard`: what the trainer last said, passed only with a pending question (never logged). */
   refresh(pendingQuestion: string | null, heard?: string): Promise<string>;
-  /** The text Resume (after Use screen) sends: taps made meanwhile were not told, so the model re-reads what it needs. */
+  /** The text Resume (after Pause) sends: taps made meanwhile were not told, so the model re-reads what it needs. */
   resumeText(): string;
   /**
-   * `quiet`: the session would drop the text (paused for Use screen, or not live). The flow follows the tap, but
+   * `quiet`: the session would drop the text (paused by Pause, or not live). The flow follows the tap, but
    * nothing is asked: no submit code and no navigation; Resume's get_status asks with the review.
    */
   onDraftChange(change: DraftChange, quiet?: boolean): string | null;
@@ -72,7 +72,13 @@ export interface VoiceExecutor {
    * screen, but no submit code is issued and no screen is pushed (Resume's get_status asks with the review).
    */
   onScreen(signal: ScreenSignal, quiet?: () => boolean): Promise<string | null>;
-  onVerification(event: VerificationEvent): Promise<string | null>;
+  /**
+   * `quiet` (read when the hook would lead on): the session would drop the text. A self pass still saves the mark,
+   * but nothing is opened and nothing navigates; the Reconnect or Resume kickoff re-reads the state.
+   */
+  onVerification(event: VerificationEvent, quiet?: () => boolean): Promise<string | null>;
+  /** The checks voice follows now, as purposeKeys: a batch's gateway while the flow is in VERIFY, the trainer's own check (D-148). */
+  checking(): readonly string[];
   voidConfirmations(): void;
   readonly endRequested: boolean;
 }
@@ -95,28 +101,42 @@ const HANDLERS: Readonly<Record<ToolName, Handler>> = {
   get_batch_report: getBatchReport,
   get_student_report: getStudentReport,
   get_at_risk: getAtRisk,
+  get_staff_report: getStaffReport,
   show_report: showReport,
   download_register: downloadRegister,
   get_my_attendance: getMyAttendance,
   mark_my_attendance: markMyAttendance,
   get_staff_today: getStaffToday,
   mark_staff: markStaff,
+  mark_remaining_staff: markRemainingStaff,
   submit_attendance: submitAttendance,
   end_voice_session: endVoiceSession,
 };
 
-/**
- * Run order for the calls of one toolCall message: a mark_remaining sent before set_student_status or
- * mark_attendance calls runs right after the last of them, so for "sab present, sirf Rahul aur Shivam
- * absent" its count already leaves out the named students. Everything else keeps its order (MVP-05 L474).
- */
-export function toolCallOrder<T extends { name?: string }>(calls: readonly T[]): T[] {
-  const last = calls.map((c) => c.name === 'set_student_status' || c.name === 'mark_attendance').lastIndexOf(true);
-  const early = calls.filter((c, i) => c.name === 'mark_remaining' && i < last);
+/** A bulk call, and the single calls of the same message that run before it. */
+const BULK_AFTER: readonly (readonly [string, ReadonlySet<string>])[] = [
+  ['mark_remaining', new Set(['set_student_status', 'mark_attendance'])],
+  ['mark_remaining_staff', new Set(['mark_staff'])],
+];
+
+function moveAfter<T extends { name?: string }>(calls: readonly T[], bulk: string, singles: ReadonlySet<string>): T[] {
+  const last = calls.map((c) => singles.has(c.name ?? '')).lastIndexOf(true);
+  const early = calls.filter((c, i) => c.name === bulk && i < last);
   if (!early.length) return [...calls];
   const rest = calls.filter((c) => !early.includes(c));
   const at = rest.indexOf(calls[last]) + 1;
   return [...rest.slice(0, at), ...early, ...rest.slice(at)];
+}
+
+/**
+ * Run order for the calls of one toolCall message: a mark_remaining sent before set_student_status or
+ * mark_attendance calls runs right after the last of them, so for "sab present, sirf Rahul aur Shivam
+ * absent" its count already leaves out the named students; a mark_remaining_staff runs after the mark_staff calls
+ * of the same message, so a person named with another status is never marked by "everyone else" first (D-156).
+ * Everything else keeps its order (MVP-05 L474).
+ */
+export function toolCallOrder<T extends { name?: string }>(calls: readonly T[]): T[] {
+  return BULK_AFTER.reduce<T[]>((order, [bulk, singles]) => moveAfter(order, bulk, singles), [...calls]);
 }
 
 const quoted = (o: { text: string; status: string | null }) => `"${o.text}"${o.status ? ` (${word(o.status)})` : ''}`;
@@ -182,7 +202,8 @@ export function createExecutor(deps: ExecutorDeps): VoiceExecutor {
 }
 
 function createMarkingExecutor(deps: MarkingDeps & { readonly plan: FlowPlan }): VoiceExecutor {
-  const h = createHandlerContext(deps);
+  const h = createHandlerContext(deps, () => starts.afterSelf());
+  const starts = createExecutorStart(h, (name, args) => run(name, args));
   const declared = new Set<string>(buildTools(deps.voice).map((t) => t.name));
   const draftNow = () => (h.state.flow.sessionKey ? deps.drafts.get(h.state.flow.sessionKey) : undefined);
   /**
@@ -190,9 +211,6 @@ function createMarkingExecutor(deps: MarkingDeps & { readonly plan: FlowPlan }):
    * replace the step hint). A batch waiting for its check keeps the check texts, wherever the screen went on the way.
    */
   const awayNow = () => (markingStep(h.state.flow.step) || verifyingBatch(h.state.flow) ? null : h.state.away);
-  /** Voice started on My attendance with the trainer's own attendance still to mark: the start offers it. */
-  const offerOwn = async () => h.state.away === 'my_attendance' && deps.voice.capabilities.selfAttendance && !(await deps.staffAttendance.myRecord(deps.ctx));
-
   async function run(name: string, args: Args): Promise<ToolResult> {
     if (!declared.has(name)) return unknownTool(name);
     const tool = name as ToolName;
@@ -212,6 +230,7 @@ function createMarkingExecutor(deps: MarkingDeps & { readonly plan: FlowPlan }):
   return {
     async execute(call) {
       const args: Args = call.args && typeof call.args === 'object' && !Array.isArray(call.args) ? call.args : {};
+      starts.toolCalled();
       try {
         return await run(typeof call.name === 'string' ? call.name : '', args);
       } catch {
@@ -221,35 +240,22 @@ function createMarkingExecutor(deps: MarkingDeps & { readonly plan: FlowPlan }):
     flow: () => h.state.flow,
     // Called after the new connection voided every code (D-082): a code issued here is bound to that connection.
     // At the review, while a submit could go ahead, the text asks the submit question with it, so one yes submits.
-    // A fresh start with exactly one markable session (no trade step) opens it at once, through the same path as the
-    // model's select_batch (D-134): the session runs the kickoff on the tool queue once the connection is live.
-    // Never when voice started away from the batch screens (My attendance, Reports, the staff screen): the screen the
-    // trainer chose stays, and the start offers own attendance (on My attendance, when unmarked) or reads the batches.
-    // With a trade step the trainer's whole board is loaded with the view (one Promise.all): the start reads only the
-    // trades with something markable now, and a later offer after a submit can name any trade (D-134).
+    // A fresh start goes to ./executor-start: own attendance first, the only open session opened, or the offer (D-134,
+    // D-152); the session runs the kickoff on the tool queue once the connection is live.
     async kickoff(kind, languageName) {
-      const [view, board] = await Promise.all([h.view(), deps.plan.tradeStep ? h.wholeBoard().catch(() => undefined) : undefined]);
-      if (kind === 'start') {
-        const greeting = greetingFor(Math.floor(minutesOfDay(deps.ctx.clock.now()) / 60));
-        if (freshStart(view) && (await offerOwn())) return selfStartEvent(languageName, greeting);
-        const open = view.cards.filter(markableNow);
-        if (open.length === 1 && !deps.plan.tradeStep && !h.state.away && freshStart(view)) {
-          // a throwing service falls back to the question that offers it (as an INTERNAL answer would to the model)
-          const result = await run('select_batch', { batch: open[0].key }).catch((e: unknown) => {
-            voiceDebug(`kickoff auto-open failed for ${open[0].key}: ${e instanceof Error ? e.name : 'error'}`);
-            return null;
-          });
-          if (result) return autoOpenEvent(result, sessionLabel(open[0], deps.plan.slotWords), languageName, greeting);
-          return sessionStartEvent(await h.view(), languageName, greeting);
-        }
-        return sessionStartEvent(view, languageName, greeting, board);
-      }
+      const [view, board] = await starts.viewAndBoard();
+      if (kind === 'start') return starts.start(languageName, view, board);
       const token = reviewTicket(h, view);
+      // before the trainer answered "Shall I start?": asked again, never "choosing the trade" (Task 9 review M5)
+      const again = token ? null : await starts.selfAgain('reconnect', languageName);
+      if (again) return again;
       const away = awayNow();
       if (!token && away) return awayReconnectEvent(away);
       return reconnectEvent(token ? confirmSubmitInstruction(view, token) : null);
     },
     async refresh(pendingQuestion, heard = '') {
+      const again = pendingQuestion ? null : await starts.selfAgain('refresh');
+      if (again) return again;
       const view = await h.view();
       // a mark_staff question (with staff marking in the plan) is asked again with its own new code, never the submit's
       const staff = await staffRefreshQuestion(h, pendingQuestion);
@@ -273,10 +279,16 @@ function createMarkingExecutor(deps: MarkingDeps & { readonly plan: FlowPlan }):
       return screenEvent(h, signal, quiet).finally(() => dropStaleSubmit(h.state));
     },
     // the trainer's own check (mark_my_attendance) or a batch's gateway: each follows only its own events
-    onVerification: (event) => (event.purpose === SELF_PURPOSE ? selfCheckHook(h, event) : verificationHook(h, event).finally(() => dropStaleSubmit(h.state))),
+    onVerification: (event, quiet) => (event.purpose === SELF_PURPOSE ? selfCheckHook(h, event, quiet) : verificationHook(h, event).finally(() => dropStaleSubmit(h.state))),
+    checking: () => {
+      const { flow } = h.state;
+      const batch = verifyingBatch(flow) && flow.sessionKey ? [purposeKey({ kind: 'session', key: flow.sessionKey })] : [];
+      return h.state.self ? [...batch, SELF_PURPOSE] : batch;
+    },
     voidConfirmations() {
       h.state.ticket = null;
       h.state.staffTicket = null;
+      h.state.staffRestTicket = null;
     },
     get endRequested() {
       return h.state.endRequested;

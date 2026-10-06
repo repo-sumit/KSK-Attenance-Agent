@@ -16,7 +16,7 @@
  * the server refuses for good leaves the outbox (like a rejected record) and
  * no longer counts.
  */
-import type { OfflineQueueItem } from '@/domain/attendance';
+import type { OfflineQueueItem, OfflineQueueKind } from '@/domain/attendance';
 import type { EventBus } from '@/lib/events';
 import type { Clock } from '@/lib/time';
 import type { AttendanceRepository, OfflineQueueRepository, StaffAttendanceRepository, SyncGateway } from '@/repositories/interfaces';
@@ -49,9 +49,23 @@ export interface SyncStatus {
   readonly lastFailure: SyncAttempt | null;
 }
 
+/**
+ * One record waiting to sync, as the Offline data list names it (D-153): a queue item, or a correction from the
+ * outbox (`label` is then the student's id, `recordId` the correction's id).
+ */
+export interface PendingSyncItem {
+  readonly id: string;
+  readonly kind: OfflineQueueKind | 'correction';
+  readonly recordId: string;
+  readonly label: string;
+  readonly enqueuedAt: string;
+}
+
 /** Records sent by another channel than the queue (the correction outbox): counted as pending, drained by a sync. */
 export interface SyncOutbox {
   pendingCount(): number;
+  /** What is counted, in send order: the correction's id, its student's id and when it was made (D-153). */
+  pendingItems?(): ReadonlyArray<{ readonly id: string; readonly label: string; readonly at: string }>;
   /** Sends what is waiting; resolves when the attempt ends (what could not be sent stays counted). */
   flush(): Promise<void>;
 }
@@ -134,8 +148,11 @@ export class SyncService {
     return { phase, online: this.deps.connectivity.isOnline(), pending, lastFailure: this.lastFailure };
   }
 
-  async pendingItems(): Promise<OfflineQueueItem[]> {
-    return retriable(await this.deps.queue.list());
+  /** What waits, in send order: queued records, then the outbox's corrections (the list matches the count, D-153). */
+  async pendingItems(): Promise<PendingSyncItem[]> {
+    const queued: PendingSyncItem[] = retriable(await this.deps.queue.list());
+    const outbox = (this.deps.outbox?.pendingItems?.() ?? []).map((c): PendingSyncItem => ({ id: c.id, kind: 'correction', recordId: c.id, label: c.label, enqueuedAt: c.at }));
+    return [...queued, ...outbox];
   }
 
   /** Called after a record is locked locally. */

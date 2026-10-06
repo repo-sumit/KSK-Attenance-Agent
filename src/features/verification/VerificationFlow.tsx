@@ -2,6 +2,7 @@
 import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Latin } from '@/components/ui/Latin';
+import { StatusLine } from '@/components/ui/StatusLine';
 import { useToast } from '@/components/ui/Toast';
 import { ScreenLayout } from '@/components/shell/ScreenLayout';
 import { AppHeader } from '@/features/shell/AppHeader';
@@ -90,9 +91,32 @@ export function VerificationFlow({ purpose, area, subtitle, passedSubtitle, onPa
       </ScreenLayout>
     );
 
+  if (phase.kind === 'reused')
+    // A self check from the last few minutes already covered this class (D-152): both steps done, then the list.
+    return (
+      <ScreenLayout surface="default" banner={false} header={header} area={area} padding="none" width="form">
+        <VerifyRun
+          showLocationStep={j.location === 'fence'}
+          showFaceStep={j.face}
+          locationState="done"
+          faceState="done"
+          visual={j.face ? 'face' : 'location'}
+          success
+          title={
+            <StatusLine tone="success" icon="circle-check">
+              {t('verify.reused')}
+            </StatusLine>
+          }
+          subtitle={passedSubtitle}
+          labels={{ location: t('verify.stepLocation'), identity: t('verify.stepIdentity') }}
+        />
+      </ScreenLayout>
+    );
+
   // Geo-tagging alone has no visible component (PRD §8.1): a neutral "getting ready" state while coordinates arrive.
-  const cameraOn = phase.kind === 'facing' || phase.kind === 'matching' || phase.kind === 'faced';
-  const faceVisual = cameraOn || phase.kind === 'passed';
+  // The live camera only while the face step runs (D-148): at "Identity verified" the stream is already off, as voice is told.
+  const cameraOn = phase.kind === 'facing' || phase.kind === 'matching';
+  const faceVisual = cameraOn || phase.kind === 'faced' || phase.kind === 'passed';
   const locationDone = phase.kind !== 'starting' && phase.kind !== 'locating';
   const visibleLocation = j.location === 'fence';
   const text: [ReactNode, ReactNode] = (() => {

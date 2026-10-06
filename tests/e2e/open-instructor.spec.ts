@@ -24,11 +24,12 @@ test('open instructor: trade → batch → verify → mark → review → submit
   await page.getByRole('button', { name: 'Review & Submit' }).click();
   await page.waitForURL(/\/attendance\/review/);
   await expect(page.getByText('Absent students (2)')).toBeVisible();
+  // The Review screen is the one confirmation (D-149): the counts, the names and "it is final", then one tap.
+  await expect(page.locator('main').getByText('29', { exact: true })).toBeVisible();
+  await expect(page.getByText('After you submit, this attendance can’t be edited.')).toBeVisible();
   await page.getByRole('button', { name: 'Submit attendance' }).click();
-  const sheet = page.getByRole('dialog', { name: 'Submit attendance?' });
-  await expect(sheet.getByText('29')).toBeVisible();
-  await sheet.getByRole('button', { name: 'Submit', exact: true }).click();
   await page.waitForURL(/\/attendance\/submitted/);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Attendance submitted' })).toBeVisible();
   await expect(page.getByText('29 Present · 2 Absent')).toBeVisible();
 

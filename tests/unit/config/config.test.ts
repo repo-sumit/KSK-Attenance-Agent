@@ -38,6 +38,13 @@ describe('validation (PRD §14.6)', () => {
     expect(validateConfiguration(configWith({ reports: { windowDays: 3 } }), ctx).map((i) => i.code)).toContain('report_window');
     expect(validateConfiguration(configWith({ reports: { windowDays: 30, atRiskMinDays: 31 } }), ctx).map((i) => i.code)).toContain('at_risk_min_days');
   });
+  it('rejects a staff threshold outside 1–100 (report.staff_threshold_pct, D-154)', () => {
+    const codes = (pct: number) => validateConfiguration(configWith({ reports: { staffThresholdPct: pct } }), ctx).map((i) => i.code);
+    expect(codes(0)).toContain('staff_threshold_range');
+    expect(codes(101)).toContain('staff_threshold_range');
+    expect(codes(1)).not.toContain('staff_threshold_range');
+    expect(codes(100)).not.toContain('staff_threshold_range');
+  });
   it('rejects face verification with nobody enrolled', () => {
     expect(validateConfiguration(configWith(), { data, enrolledFaceCount: 0 }).map((i) => i.code)).toContain('face_without_enrolment');
   });
@@ -73,6 +80,16 @@ describe('journey derivation — disabled means absent (PRD §1.2)', () => {
     expect(journeyFor('st-sunita', { mapping: { model: 'batch' } }).navTabs).toEqual(['home', 'reports']);
     expect(journeyFor('st-anil').navTabs).toEqual(['home', 'attendance', 'reports']);
   });
+  it('offline is for every user, the principal included; packs only where the user can mark students (D-153)', () => {
+    expect(journeyFor('st-anil').offline).toMatchObject({ enabled: true, packs: true });
+    expect(journeyFor('st-rajesh').offline).toMatchObject({ enabled: true, packs: true });
+    expect(journeyFor('st-anil', { identity: { principalCanMarkStudents: false } }).offline).toMatchObject({ enabled: true, packs: false });
+    // An instructor's packs never depend on the principal's switch.
+    expect(journeyFor('st-rajesh', { identity: { principalCanMarkStudents: false } }).offline.packs).toBe(true);
+    for (const staff of ['st-rajesh', 'st-anil']) expect(journeyFor(staff, { offline: { enabled: false } }).offline).toMatchObject({ enabled: false, packs: false });
+    // The principal already has Reports: the tabs do not change.
+    expect(journeyFor('st-anil', { reports: { enabled: false } }).navTabs).toEqual(['home', 'attendance', 'reports']);
+  });
   it('Profile is never a navigation tab (it lives in the header avatar menu)', () => {
     for (const staff of ['st-rajesh', 'st-anil']) expect(journeyFor(staff).navTabs).not.toContain('profile');
   });
@@ -85,6 +102,9 @@ describe('journey derivation — disabled means absent (PRD §1.2)', () => {
     const j = journeyFor('st-rajesh', { reports: { eligibilityThresholdPct: 80, leaderboardSort: 'low_first', trendMonths: 0 } });
     expect(j.reports).toMatchObject({ eligibilityThresholdPct: 80, leaderboardSort: 'low_first', trendMonths: 0 });
     expect(journeyFor('st-rajesh').reports).toMatchObject({ eligibilityThresholdPct: 75, leaderboardSort: 'high_first', trendMonths: 3 });
+    // The staff threshold (D-154): 90 by default, configurable.
+    expect(journeyFor('st-anil').reports.staffThresholdPct).toBe(90);
+    expect(journeyFor('st-anil', { reports: { staffThresholdPct: 80 } }).reports.staffThresholdPct).toBe(80);
   });
   it('announcements are on in Maharashtra and can be switched off (D-054)', () => {
     expect(journeyFor('st-rajesh').announcements.enabled).toBe(true);

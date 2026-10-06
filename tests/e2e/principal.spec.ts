@@ -1,4 +1,4 @@
-import { expect, nav, preset, test } from './fixtures';
+import { demo, expect, nav, preset, test } from './fixtures';
 
 test('principal corrects today’s attendance with a reason; the audit log records it', async ({ page, consoleErrors }) => {
   void consoleErrors;
@@ -22,8 +22,13 @@ test('principal corrects today’s attendance with a reason; the audit log recor
   await page.waitForURL(/\/attendance\/record/);
   await expect(page.getByText('Corrected by principal')).toBeVisible();
 
-  await page.getByRole('radio', { name: 'Yesterday' }).click();
-  // Read-only either way: yesterday's record (or, on a Monday, Sunday's empty day) can't be corrected.
+  // The record shows only the session it was opened for (D-150): no Today/Yesterday switch.
+  await expect(page.getByRole('radio', { name: 'Yesterday' })).toHaveCount(0);
+  // A typed URL for yesterday is read-only either way: its record (or, on a Monday, Sunday's empty day) can't be corrected.
+  const today = new URL(page.url()).searchParams.get('s')?.split('.')[1] ?? '';
+  expect(today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  const yesterday = new Date(Date.parse(`${today}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  await page.goto(page.url().replace(today, yesterday));
   await expect(page.getByText(/Attendance from previous days can’t be corrected\.|Nothing was submitted for Electrician · Shift 1 · Unit 1/)).toBeVisible();
   await expect(page.getByRole('link', { name: /Rahul Kumar/ })).toHaveCount(0);
 
@@ -71,4 +76,36 @@ test('principal Home and the Attendance tab count batches one way; both attentio
   const counts = (await rows.allTextContents()).map((s) => s.match(/(\d+) of (\d+)/)!.slice(1).map(Number));
   expect(counts.reduce((a, [d]) => a + d, 0)).toBe(done);
   expect(counts.reduce((a, [, n]) => a + n, 0)).toBe(total);
+});
+
+test('principal offline (D-153): staff marks saved on this phone, named in Offline data, synced on reconnect', async ({ page, consoleErrors }) => {
+  void consoleErrors;
+  await preset(page, 'principal');
+  await demo(page, "setNetwork('offline')");
+  await page.getByRole('link', { name: 'Mark staff attendance' }).click();
+  await page.waitForURL(/\/attendance\/staff/);
+  const sanjay = page.locator('li', { hasText: 'Sanjay More' });
+  await sanjay.getByRole('combobox', { name: 'Attendance for Sanjay More' }).selectOption('present');
+  await page.getByRole('button', { name: 'Save 1 change' }).click();
+  await page.getByRole('dialog').getByRole('button', { name: 'Save 1 change' }).click();
+  // D-032: the save says where the marks are.
+  await expect(page.getByText('Saved on this phone · will sync automatically')).toBeVisible();
+
+  // Home's Sync pending card counts it and links to the list.
+  await nav(page, 'Home').click();
+  await page.waitForURL(/\/home$/);
+  const card = page.getByRole('region', { name: 'Sync pending' });
+  await expect(card).toContainText('1 attendance record waiting');
+  await card.getByRole('link', { name: 'See what’s waiting' }).click();
+  await page.waitForURL(/\/reports\/offline$/);
+  const full = page.getByRole('region', { name: 'Sync pending' });
+  await expect(full.getByRole('listitem')).toHaveCount(1);
+  await expect(full.getByRole('listitem')).toContainText('Staff attendance · Sanjay More');
+  await expect(full).toContainText('reported as missing for the day');
+  // The principal can mark students, so the downloaded batches are there too.
+  await expect(page.getByRole('heading', { name: 'Downloaded batches' })).toBeVisible();
+
+  await demo(page, "setNetwork('online')");
+  await expect(page.getByText('All attendance synced').first()).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Sync pending' }).getByRole('listitem')).toHaveCount(0);
 });

@@ -3,18 +3,17 @@ import { describe, expect, it } from 'vitest';
 import type { Student } from '@/domain/entities';
 import type { VerificationEvent } from '@/services/verification';
 import {
-  RECONNECT_EVENT, autoOpenEvent, backEvent, batchEvent, faceCheckUnfinishedEvent, limitEvent, listEvent, lockedBatchEvent, reconnectEvent, refreshEvent, reviewEvent,
-  sessionStartEvent, submitEvent, tapMarkEvent, tradeEvent, verificationEvent,
+  RECONNECT_EVENT, backEvent, batchEvent, faceCheckUnfinishedEvent, limitEvent, listEvent, lockedBatchEvent, reconnectEvent, refreshEvent, reviewEvent,
+  submitEvent, tapMarkEvent, tradeEvent, verificationEvent,
 } from '@/services/voice/app-events';
-import { checkWords, distanceText, verificationPhrase } from '@/services/voice/labels';
-import { awayReconnectEvent, awayRefreshEvent, awayResumeEvent, selfStartEvent } from '@/services/voice/overview';
-import { ABSENT, BLANK, FITTER, KEY, OJT, PLAN, PRESENT, ROLL_PLAN, STUDENTS, batch, card, draft, flow, tap, view, voice } from '../../helpers/voice-view';
+import { checkLine, checkWords, distanceText, verificationPhrase, type CheckWords } from '@/services/voice/labels';
+import { awayReconnectEvent, awayRefreshEvent, awayResumeEvent } from '@/services/voice/overview';
+import { ABSENT, BLANK, KEY, OJT, PLAN, PRESENT, ROLL_PLAN, STUDENTS, draft, flow, tap, view, voice } from '../../helpers/voice-view';
 
 const FALLBACK = '[APP] The trainer changed something on screen. Call get_status and continue from there.';
 const OPEN_HEAD = "In the trainer's language, with numbers said the way that language says them, say Shift 1, Unit 2, Electrician and that there are 3 students. Say in one line who is already set and will not be called: Rohan Pawar on OJT.";
 const OPEN_BY_EXCEPTION = 'In the trainer\'s language, with numbers said the way that language says them, in one short line, say Shift 1, Unit 2, Electrician, 3 students, everyone present, and ask who is absent (for example "Electrician Shift 1 Unit 1: 28 students, all present. Who is absent?"). Then say in a few words who is already set and will not be asked about: Rohan Pawar on OJT. Then stop and wait. Mark each student the trainer names with set_student_status. If the trainer wants every name called ("naam se bulao", "call the names"), call start_roll_call.';
 const READ = "Read only the batches open now, as \"Shift <n>, Unit <n>\", with numbers said the way the trainer's language says them: Shift 1, Unit 1; Shift 1, Unit 2. Do not mention any other batch. Then ask which one in two or three words.";
-const HELLO = (lang: string, greeting = 'Good morning') => `Greet the trainer by first name in one short line in ${lang} ("${greeting}, <first name>.")`;
 const purpose = `session:${KEY}`;
 
 describe('[APP] events', () => {
@@ -29,12 +28,6 @@ describe('[APP] events', () => {
     for (const text of [awayResumeEvent('other'), awayReconnectEvent('reports'), awayRefreshEvent('staff_attendance')]) {
       expect(text).not.toMatch(/say nothing|get_status|student|batch list/i);
     }
-  });
-
-  it('voice started on My attendance with the trainer\'s own attendance not marked: it offers to mark it', () => {
-    expect(selfStartEvent('English', 'Good morning')).toBe(
-      `[APP] Session started. The trainer is on My attendance, and their own attendance is not marked today. ${HELLO('English')}, then ask in one short line whether to mark it now, and wait for the answer. Only after a yes call mark_my_attendance.`,
-    );
   });
 
   it('distance text follows PRD 8.2 and the verification phrase follows the plan', () => {
@@ -53,53 +46,19 @@ describe('[APP] events', () => {
     expect(checkWords({ location: 'none', face: false })).toBe('');
   });
 
-  it('kickoff: a fresh start greets by first name and the time of day; mid-flow it re-reads the state', () => {
-    expect(sessionStartEvent(view({ flow: flow({ step: 'SELECT_TRADE', tradeId: null, sessionKey: null }) }), 'Marathi', 'Good morning')).toBe(
-      `[APP] Session started. ${HELLO('Marathi')}, then ask which trade, reading the trade names: Electrician, Fitter. No tool call is needed before the trainer answers. When the trainer names one, call select_trade.`,
-    );
-    const plan = { ...PLAN, selection: 'batch_list' as const, tradeStep: false };
-    const choosing = flow({ step: 'SELECT_BATCH', tradeId: null, sessionKey: null });
-    const later = card(batch(1, 2), { status: 'future', window: { start: '14:00', end: '18:00' } });
-    const several = view({ plan, flow: choosing, cards: [card(batch(1)), card(batch(2)), later] });
-    const text = sessionStartEvent(several, 'English', 'Good afternoon');
-    expect(text).toBe(
-      `[APP] Session started. ${HELLO('English', 'Good afternoon')}, then: Read only the batches open now, as "Shift <n>, Unit <n>, <trade>", with numbers said the way the trainer's language says them: Shift 1, Unit 1, Electrician; Shift 1, Unit 2, Electrician. Do not mention any other batch. Then ask which one in two or three words. ` +
-        `Their ids for select_batch: Shift 1, Unit 1, Electrician: ${card(batch(1)).key}; Shift 1, Unit 2, Electrician: ${KEY}.`,
-    );
-    expect(text).not.toMatch(/Shift 2|2:00/);
-    expect(sessionStartEvent(view({ plan, flow: choosing, cards: [later] }), 'English', 'Good evening')).toBe(
-      `[APP] Session started. Nothing can be marked right now: the next batch opens at 2:00 pm. ${HELLO('English', 'Good evening')}, say that in one line, then ask "What do you need?". Then wait.`,
-    );
-    expect(sessionStartEvent(view({ plan, flow: choosing, cards: [card(batch(1), { status: 'submitted' })] }), 'English', 'Good morning')).toBe(
-      `[APP] Session started. Every batch today is already submitted. ${HELLO('English')}, say that in one line, then ask "What do you need?". Then wait.`,
-    );
-    expect(sessionStartEvent(view(), 'English', 'Good morning')).toBe('[APP] Session started again. Call get_status and continue from where we were.');
-  });
-
-  it('kickoff with a trade step and the whole board: only the trades with something markable now, or why nothing can be', () => {
-    const picking = flow({ step: 'SELECT_TRADE', tradeId: null, sessionKey: null });
-    const fitter = (o: Parameters<typeof card>[1] = {}) => ({ ...card({ ...batch(2), id: 'fit-s1u2', tradeId: 'fit' }, o), trade: FITTER });
-    const later = { status: 'future' as const, window: { start: '14:00', end: '18:00' } };
-    // Electrician has only a submitted and a later batch: it is not read
-    const board = [card(batch(1), { status: 'submitted' }), card(batch(2, 2), later), fitter()];
-    expect(sessionStartEvent(view({ flow: picking }), 'English', 'Good morning', board)).toBe(
-      `[APP] Session started. ${HELLO('English')}, then ask which trade, reading the trade names: Fitter. No tool call is needed before the trainer answers. When the trainer names one, call select_trade.`,
-    );
-    const none = [card(batch(1), { status: 'submitted' }), card(batch(2, 2), later), fitter(later)];
-    expect(sessionStartEvent(view({ flow: picking }), 'English', 'Good morning', none)).toBe(
-      `[APP] Session started. Nothing can be marked right now: the next batch opens at 2:00 pm. ${HELLO('English')}, say that in one line, then ask "What do you need?". Then wait.`,
-    );
-    // no board (it could not load): every trade, as before
-    expect(sessionStartEvent(view({ flow: picking }), 'English', 'Good morning')).toContain('reading the trade names: Electrician, Fitter.');
-  });
-
-  it('kickoff with the only open batch opened by the app: the result instruction follows the greeting', () => {
-    expect(autoOpenEvent({ ok: true, instruction: 'Say X.' }, 'Shift 1, Unit 2, Electrician', 'English', 'Good morning')).toBe(
-      `[APP] Session started. Only Shift 1, Unit 2, Electrician can be marked now, so the app opened it: do not call select_batch for it. ${HELLO('English')}, then: Say X.`,
-    );
-    expect(autoOpenEvent({ ok: false, error: 'NEEDS_CONNECTION', instruction: 'Say Y.' }, 'Shift 1, Unit 2, Electrician', 'Marathi', 'Good evening')).toBe(
-      `[APP] Session started. Only Shift 1, Unit 2, Electrician can be marked now, but it cannot be opened. ${HELLO('Marathi', 'Good evening')}, then: Say Y.`,
-    );
+  it('the check line exists for every named check, and only a named check can be asked for (typed, never an empty quote)', () => {
+    const every: readonly CheckWords[] = ['location and face', 'location', 'face'];
+    for (const words of every) expect(checkLine(words)).toMatch(/^[A-Z].+\.$/);
+    expect(checkWords({ location: 'fence', face: true })).toBe('location and face');
+    expect(checkLine('location and face')).toBe('Checking your location, then please look at the camera.');
+    // Compile-time only (tsc covers tests/; the function is never called): an unnamed check and any other key are not CheckWords.
+    const untyped = () => {
+      // @ts-expect-error an unnamed check (silent geo-tagging alone) has no line to quote
+      checkLine('');
+      // @ts-expect-error nor does any other key
+      checkLine('location or face');
+    };
+    void untyped;
   });
 
   it('refresh gives the facts, restates last_marked and says only the current name (never "stay silent")', () => {
@@ -325,7 +284,7 @@ describe('[APP] events', () => {
   it('every event starts with [APP] and none asks for confirmed=true', () => {
     const review = view({ flow: flow({ step: 'REVIEW' }) });
     const events = [
-      sessionStartEvent(view(), 'English', 'Good morning'), refreshEvent(review, null), tradeEvent(view({ flow: flow({ step: 'SELECT_BATCH', sessionKey: null }) })),
+      refreshEvent(review, null), tradeEvent(view({ flow: flow({ step: 'SELECT_BATCH', sessionKey: null }) })),
       batchEvent(view()), backEvent(view({ flow: flow({ step: 'SELECT_TRADE', tradeId: null, sessionKey: null }) })), reviewEvent(review, 'K7QX'), reviewEvent(review),
       listEvent(view()), submitEvent('x'), limitEvent('idle'), faceCheckUnfinishedEvent(view()), RECONNECT_EVENT,
     ];

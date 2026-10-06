@@ -36,18 +36,6 @@
   letter-spacing: var(--ls-body-small);
   color: var(--color-text-secondary);
 }
-.subSuccess,
-.subWarning {
-  font: var(--type-label-small);
-  letter-spacing: var(--ls-label-small);
-}
-.subSuccess { color: var(--color-text-success); }
-.subWarning { color: var(--color-text-warning); }
-.empty {
-  font: var(--type-body-medium);
-  letter-spacing: var(--ls-body-medium);
-  color: var(--color-text-secondary);
-}
 .iconSuccess { color: var(--color-icon-success); }
 .iconWarning { color: var(--color-icon-warning); }
 /* A count and its word ("2 Absent") or a time and its label never split across lines. */
@@ -59,13 +47,77 @@
   color: var(--color-icon-secondary);
 }
 
-/* Two cards side by side when there is room for both to read comfortably; never more than two. */
+/*
+ * A card with an action (D-159): the action under the text, full width, on phones; beside the text from a 520px card
+ * (the Sync pending card's rule), never stretched across a wide card.
+ */
+.actionCard {
+  container-type: inline-size;
+}
+.cardBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-12);
+}
+@container (min-width: 520px) {
+  .cardBody {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    column-gap: var(--space-16);
+  }
+  .cardAction {
+    min-width: 200px;
+    max-width: var(--container-footer);
+  }
+}
+
+/* ProgressCard: tile, title and chevron; "4 of 17" and its unit; the bar; an optional note. */
+.progressTop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-12);
+  width: 100%;
+}
+.progressTitle {
+  flex: 1;
+  min-width: 0;
+  font: var(--type-title-medium);
+  letter-spacing: var(--ls-title-medium);
+}
+.count {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: var(--space-8);
+}
+.big {
+  font: var(--type-heading-medium);
+  font-variant-numeric: tabular-nums;
+}
+.unit {
+  font: var(--type-body-medium);
+  letter-spacing: var(--ls-body-medium);
+  color: var(--color-text-secondary);
+}
+.note {
+  font: var(--type-body-small);
+  letter-spacing: var(--ls-body-small);
+  color: var(--color-text-secondary);
+}
+
+/*
+ * Two cards side by side once the content column has 640px (the one two-up rule, D-159: the class lists and trade
+ * lists use it too); never more than two; 12 between cards (DS Card gap), the grid gutter between columns.
+ */
+.pairWrap {
+  container-type: inline-size;
+}
 .pair {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-24);
+  gap: var(--space-12);
 }
-@media (min-width: 720px) {
+@container (min-width: 640px) {
   .pair {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     column-gap: var(--page-gutter);

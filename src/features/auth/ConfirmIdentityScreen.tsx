@@ -11,6 +11,7 @@ import { useT } from '@/hooks/i18n';
 import { useServices } from '@/hooks/services';
 import { routes } from '@/lib/routes';
 import { designationLabel } from '../common/labels';
+import { RoleLine } from '../common/RoleLine';
 import { finishLogin } from './finishLogin';
 import { useLoginFlow } from './LoginFlow';
 import styles from './Login.module.css';
@@ -62,6 +63,8 @@ export function ConfirmIdentityScreen() {
             fullWidth
             onClick={() => {
               flow.setInstructor(null);
+              // A picked demo account is forgotten too, so the next "Yes, continue" asks for a Trainer ID.
+              flow.setAssistAccount(null);
               router.back();
             }}
           >
@@ -79,7 +82,9 @@ export function ConfirmIdentityScreen() {
               <p className={styles.personName}>
                 <Latin>{instructor.name}</Latin>
               </p>
-              <p className={styles.personRole}>{specialty && instructor.role !== 'principal' ? t('role.withTrade', { role, trade: specialty }) : role}</p>
+              <p className={styles.personRole}>
+                <RoleLine role={role} trade={instructor.role !== 'principal' ? specialty : null} />
+              </p>
             </div>
           </div>
           <DetailRows rows={rows} />

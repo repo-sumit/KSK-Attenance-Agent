@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { scrollIntoViewSettled } from '@/lib/scroll';
 import { Banner } from '@/components/ui/Banner';
 import { Card } from '@/components/ui/Card';
 import { Disclosure } from '@/components/ui/Disclosure';
@@ -39,7 +40,8 @@ export function AtRiskSection() {
     // Once the list is in: a skeleton's height would leave the section short of where it ends up.
     if (!shown || !loaded) return;
     const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-    section.current?.scrollIntoView?.({ block: 'start', behavior: reduced ? 'auto' : 'smooth' });
+    // Held in view while the sections above it finish loading (they grow and would push it away).
+    return section.current ? scrollIntoViewSettled(section.current, reduced) : undefined;
   }, [shown, loaded]);
 
   return (

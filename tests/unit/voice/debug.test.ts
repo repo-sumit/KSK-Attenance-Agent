@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
 
@@ -57,5 +58,23 @@ describe('voiceDebug', () => {
     expect(voiceDebugEnabled()).toBe(true);
     page.search = '';
     expect(voiceDebugEnabled()).toBe(true);
+  });
+
+  it('is on in a development build without the flag (D-158), so `next dev` always names the failing step', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.stubEnv('NODE_ENV', 'development');
+    vi.stubGlobal('location', { search: '' });
+    const { voiceDebug, voiceDebugEnabled } = await load();
+    expect(voiceDebugEnabled()).toBe(true);
+    voiceDebug('start');
+    expect(info.mock.calls).toEqual([['[voice] start']]);
+  });
+
+  it('stays off in a production build without the flag, and on with it (D-130)', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubGlobal('location', { search: '' });
+    expect((await load()).voiceDebugEnabled()).toBe(false);
+    vi.stubGlobal('location', { search: '?voiceDebug=1' });
+    expect((await load()).voiceDebugEnabled()).toBe(true);
   });
 });

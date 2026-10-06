@@ -14,7 +14,7 @@ import { submissionToRow } from '@/repositories/supabase/mappers';
 import { ServerReadCache } from '@/repositories/supabase/read-cache';
 import { createSupabaseContainer } from '@/services/container';
 import { DEFAULT_SIMULATION, StaticSimulationSource } from '@/services/simulation';
-import { signIn, verify } from '../helpers/app';
+import { SELF_FIRST_OFF, signIn, verify } from '../helpers/app';
 import { FakeDataClient, seedMasterData } from './supabase-fake';
 
 const DAY1 = '2026-09-25';
@@ -28,7 +28,7 @@ function setup(opts: { store?: KeyValueStore; cacheStore?: KeyValueStore; client
   if (!opts.client) seedMasterData(client, DAY1);
   const store = opts.store ?? new MemoryStore();
   const cacheStore = opts.cacheStore ?? new MemoryStore();
-  const app = createSupabaseContainer({ store, preferencesStore: new MemoryStore(), clock, simulation, client, cacheStore });
+  const app = createSupabaseContainer({ store, preferencesStore: new MemoryStore(), clock, simulation, client, cacheStore, configOverrides: { get: () => SELF_FIRST_OFF } });
   app.services.sync.start();
   return { app, client, clock, simulation, store, cacheStore };
 }

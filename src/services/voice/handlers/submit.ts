@@ -16,6 +16,7 @@ import type { SessionCard } from '@/services/attendance';
 import type { DraftSnapshot } from '@/services/marking-draft';
 import { confirmSubmitInstruction, currentView, markableNow, nextOpening, openDraft, stepHint, viewCounts, type VoiceView } from '../instructions';
 import { countsOf, sessionLabel, spokenTime, studentView, type StudentView } from '../labels';
+import { SELF_FIRST_INSTRUCTION } from '../staff-texts';
 import type { ToolResult } from '../tools';
 import { fail, markingStep as marking, wrongStep, type Handler, type HandlerContext } from './context';
 import { askReview } from './review';
@@ -137,6 +138,7 @@ async function saveHeld(h: HandlerContext, key: SessionKey, card: SessionCard | 
   const counts = countsOf(sent, plan.statuses);
   const result = await attendance.submit(ctx, key, sent.marks);
   if (result.ok) {
+    h.deps.bus.emit({ type: 'saved', what: 'submit' }); // the "saved" cue (D-156)
     lockSession(h, key, sent, 'submitted', routes.submitted(key));
     // what can be marked now across all the trainer's trades, loaded after the lock (in one go with the view on offer;
     // the board as last loaded if loading fails: the submit is saved)
@@ -154,6 +156,8 @@ async function saveHeld(h: HandlerContext, key: SessionKey, card: SessionCard | 
       return windowClosed(plan, card, true);
     case 'not_verified':
       return fail('NOT_VERIFIED', `The location and face check for ${label} is missing, so nothing was saved. Say so in one short line; the trainer opens the batch again to be checked.`);
+    case 'self_first': // own attendance first (D-152), its record gone meanwhile (a shared reset): a retry would fail the same way
+      return fail('SELF_FIRST', SELF_FIRST_INSTRUCTION);
     case 'incomplete':
       return incomplete(h, h.viewOf({ draft: sent }), sent) ?? fail('INCOMPLETE', 'Some students are not marked yet, so nothing was saved. Call get_status and continue from there.', { counts });
     default:

@@ -71,6 +71,11 @@ export class SupabaseCorrectionRepository implements CorrectionRepository {
     return this.outbox().length;
   }
 
+  /** The same corrections for the waiting list, in send order: id, the student's id and when (D-153). */
+  pendingItems(): Array<{ id: string; label: string; at: string }> {
+    return this.outbox().map((c) => ({ id: c.correctionId, label: c.studentId, at: c.timestamp }));
+  }
+
   /**
    * Sends waiting corrections in order. A correction whose submission is still waiting on this device (23503) waits
    * for it; one whose submission is nowhere is refused. A call during a running flush is not lost: that flush runs

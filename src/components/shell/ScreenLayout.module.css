@@ -12,8 +12,11 @@
   width: 100%;
   height: 100vh;
   height: 100dvh;
-  overflow: hidden;
-  overflow-x: clip;
+  /*
+   * clip, not hidden: a clip box is not a scroll container, so nothing (scrollIntoView, find in page) can ever scroll
+   * the shell and lift the header off the screen (U1). Card mode still clips to its rounded corners.
+   */
+  overflow: clip;
   padding-left: env(safe-area-inset-left);
   padding-right: env(safe-area-inset-right);
   /*
@@ -50,13 +53,15 @@
   --banner-end-reserve: var(--demo-reserve-inline);
 }
 .main {
+  /* The containing block of absolutely positioned content (visually hidden text): it scrolls and clips with main (U1). */
+  position: relative;
   flex: 1;
   min-height: 0;
   min-width: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   scroll-padding-block: var(--space-8);
-  /* A row scrolled into view (the voice agent's current student) stops above the floating voice button. */
+  /* A row scrolled into view (the voice agent's current student) stops above the floating Voice Agent widget. */
   scroll-padding-block-end: calc(var(--space-8) + var(--voice-reserve-block-end));
   display: flex;
   flex-direction: column;
@@ -85,41 +90,21 @@
 .pad-none {
   padding: 0 var(--gutter-flush) calc(var(--demo-reserve-block-end) + var(--voice-reserve-block-end));
 }
+/*
+ * Headerless screens: a floating demo trigger's band (--demo-reserve-block, phones) sits above the scroller, not
+ * inside it, so a scrolled row never slides under the trigger. The content starts where it always did: the padding
+ * gives back what the band adds (never less than 8px, or 40px on centred screens).
+ */
 .headerless {
-  padding-top: calc(var(--space-16) + env(safe-area-inset-top) + var(--demo-reserve-block));
+  margin-top: var(--demo-reserve-block);
+  padding-top: max(var(--space-16) + env(safe-area-inset-top) - var(--demo-reserve-block), var(--space-8));
 }
 .pad-center.headerless {
-  padding-top: calc(var(--space-48) + env(safe-area-inset-top) + var(--demo-reserve-block));
+  padding-top: max(var(--space-48) + env(safe-area-inset-top) - var(--demo-reserve-block), var(--space-40));
 }
 .dock {
   flex: none;
   padding-bottom: env(safe-area-inset-bottom);
-}
-/*
- * The floating voice controls' anchor (DockAnchor, D-133): on the content column, at the top of the dock. Its
- * height is the band the voice card sits in while it is open (0 otherwise), so the card never covers a row. The
- * margin under it is the card's gap above the footer or the bottom navigation (D-136); min() keeps it 0 while no
- * card shows.
- */
-.floatAnchor {
-  height: var(--voice-space);
-  margin: 0 var(--gutter-inline) min(var(--voice-space), var(--space-8));
-}
-/* Nothing below the anchor in the dock (no footer, no bottom navigation): a wider gap to the screen's edge. */
-.floatAnchor:last-child {
-  margin-bottom: min(var(--voice-space), var(--space-16));
-}
-/* Phones: the voice card spans the screen with a slim margin (a floating sheet), so its row keeps its width. */
-@media (max-width: 599px) {
-  .floatAnchor {
-    margin-inline: var(--space-8);
-  }
-}
-/* From 600px the bottom navigation is hidden (the header row holds it): only a footer is below the anchor. */
-@media (min-width: 600px) {
-  .floatAnchor:not(:has(~ .footer)) {
-    margin-bottom: min(var(--voice-space), var(--space-16));
-  }
 }
 .footer {
   display: flex;
@@ -138,6 +123,9 @@
 }
 .inverse .footer {
   padding-bottom: var(--space-24);
+}
+.footerDivider .footer {
+  border-top: var(--divider-thin) solid var(--color-border-subtle);
 }
 
 /* Phones: touch scrolling, no scrollbar chrome (as the prototype). Mouse users on wider screens keep theirs. */
@@ -177,17 +165,27 @@
   .inlineFooter .footer {
     border-top: none;
   }
-  /* The footer follows the content here: the voice card floats at the viewport's corner instead of in a band. */
+  /*
+   * The dock follows the content here, so a spacer that follows the widget's size would move it (and the Voice Agent
+   * widget's corner) when the button grows into the card. Instead the frame keeps a fixed room for the RESTING card
+   * under the dock while the widget shows (--voice-reserve-resting, the same with the button and the card): a short
+   * screen shows it as the empty page under its action, and a screen taller than the window scrolls in main above the
+   * dock, which then ends above the widget's corner. So main is the same in both modes, the widget never covers the
+   * action (DockInset lifts it over the action only if the card is taller than it rests), and no row sits under it.
+   */
   .inlineFooter {
-    --voice-space: 0px;
+    --voice-reserve-block-end: 0px;
+  }
+  /* A card screen's widget sits outside the card: the room is for inline-footer screens outside a card only. */
+  .inlineFooter:not(.card) {
+    padding-bottom: calc(var(--voice-reserve-resting) + var(--demo-reserve-block-end));
   }
   .card {
     /* Inside the card the DS page margins would double up: one comfortable inset instead. */
     --gutter-inline: var(--space-32);
-    /* The floating demo trigger and the voice controls sit outside the card. */
+    /* The floating demo trigger and the Voice Agent widget sit outside the card. */
     --demo-reserve-block-end: 0px;
     --voice-reserve-block-end: 0px;
-    --voice-space: 0px;
     height: auto;
     max-height: calc(100dvh - 2 * var(--space-48));
     max-width: var(--container-form);
@@ -205,6 +203,16 @@
   .card .footer {
     border-top: none;
   }
+  /* Inside the card the divider stops at the card's content margin; the button keeps its 280px. */
+  .card.footerDivider .footer {
+    position: relative;
+  }
+  .card.footerDivider .footer::before {
+    content: '';
+    position: absolute;
+    inset: 0 var(--gutter-inline) auto;
+    border-top: var(--divider-thin) solid var(--color-border-subtle);
+  }
   /*
    * footerLayout="row": two actions, or a message and its action, side by side
    * and centred instead of stacked (Review, the roster). Each button keeps the
@@ -215,7 +223,8 @@
     flex-wrap: wrap;
     align-items: center;
     justify-content: center;
-    column-gap: var(--space-16);
+    /* One gap for a pair of buttons side by side (D-159), as sheet and Home actions; stacked on phones they keep 8. */
+    column-gap: var(--space-12);
     --gutter-footer: var(--gutter-inline);
   }
   .footerRow .footer > * {

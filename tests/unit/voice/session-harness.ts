@@ -70,6 +70,9 @@ export function stubExecutor() {
     quiets: [] as boolean[],
     voids: 0,
     endRequested: false,
+    /** What checking() answers: the checks voice follows (purposeKeys). */
+    checks: [] as string[],
+    checking: (): readonly string[] => ex.checks,
     respond(fn: (call: ToolCall) => ToolResult | Promise<ToolResult>) { respond = fn; },
     /** How refresh answers (default: '[APP] Refreshed.' at once). */
     refreshWith(fn: () => Promise<string>) { refreshed = fn; },
@@ -93,7 +96,7 @@ export function stubExecutor() {
       ex.quiets.push(quiet?.() ?? false);
       return signal.kind === 'home' ? '[APP] Home.' : null;
     },
-    async onVerification(e: VerificationEvent) { ex.verifications.push(e); return e.type === 'face' ? '[APP] Face.' : null; },
+    async onVerification(e: VerificationEvent, _quiet?: () => boolean): Promise<string | null> { ex.verifications.push(e); return e.type === 'face' ? '[APP] Face.' : null; },
     voidConfirmations() { ex.voids += 1; },
   };
   return ex satisfies VoiceExecutor;

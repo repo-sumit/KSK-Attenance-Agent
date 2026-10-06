@@ -57,6 +57,7 @@ describe('story packs on the shared source', () => {
     expect(await app.services.session.load()).not.toBeNull();
     app.mockDatabase.write('packs', { 'wel-s1u1': { batchId: 'wel-s1u1', downloadedAt: instantAt(today, '08:00').toISOString() } }); // a device that kept only its own download
     await controller.applyPreset('offline');
+    controller.setConfig({ staff: { selfBeforeStudents: false } }); // own attendance first is not this test's subject (D-152)
     const packs = Object.fromEntries((await app.repositories.packs.list()).map((p) => [p.batchId, p.downloadedAt]));
     expect(packs).toMatchObject({
       'ele-s1u2': instantAt(today, '07:45').toISOString(),
@@ -76,6 +77,7 @@ describe('the Data switch refuses while records wait to sync', () => {
   it('counts an unsynced submission (and its queue item) once, keeps the choice and does not reload', async () => {
     const { app, demo, controller, reloads } = await sharedDemo();
     await controller.signInAs('open', false);
+    controller.setConfig({ staff: { selfBeforeStudents: false } }); // own attendance first is not this test's subject (D-152)
     const ctx = (await app.services.session.load())!;
     await controller.setNetwork('offline');
     const key = `ele-s1u2.${toLocalDate(app.clock.now())}.daily`;

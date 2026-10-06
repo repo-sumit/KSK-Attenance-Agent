@@ -30,6 +30,8 @@ export interface ToolHost {
   failed(): void;
   /** end_voice_session was answered. */
   ending(): void;
+  /** Answering a toolCall message started (true) or ended (false): the working status (D-156). */
+  busy(on: boolean): void;
   /** Ids and codes only, never names or what was heard. */
   log(line: string): void;
 }
@@ -96,7 +98,14 @@ export class ToolRunner {
   }
 
   run(calls: readonly LiveToolCall[], gen: number): void {
-    this.enqueue((stamp) => this.answerAll(calls, gen, stamp));
+    this.enqueue(async (stamp) => {
+      this.host.busy(true);
+      try {
+        await this.answerAll(calls, gen, stamp);
+      } finally {
+        this.host.busy(false);
+      }
+    });
   }
 
   cancel(ids: readonly string[], gen: number): void {

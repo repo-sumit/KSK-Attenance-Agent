@@ -14,7 +14,6 @@ test('offline: mark against a downloaded roster, lock locally, then sync when ba
   await page.waitForURL(/\/attendance\/mark/, { timeout: 20_000 });
   await page.getByRole('button', { name: 'Review & Submit' }).click();
   await page.getByRole('button', { name: 'Submit attendance' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Submit', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Saved on this phone' })).toBeVisible();
 
   await page.getByRole('link', { name: 'Done' }).click();
@@ -26,7 +25,7 @@ test('offline: mark against a downloaded roster, lock locally, then sync when ba
   const full = page.getByRole('region', { name: 'Sync pending' });
   await expect(full.getByRole('listitem')).toHaveCount(1);
   await expect(full.getByRole('listitem')).toContainText('Electrician · Shift 1 · Unit 2');
-  await expect(full).toContainText('flagged to the principal');
+  await expect(full).toContainText('reported as missing for the day');
   await expect(page.getByRole('heading', { name: 'Waiting to sync' })).toHaveCount(0);
   await page.goBack();
   await demo(page, "setNetwork('online')");

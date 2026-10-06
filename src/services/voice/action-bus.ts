@@ -12,6 +12,8 @@ export type UiEvent =
   /** Trade switcher: the chosen trade lives in AttendanceBoard's local state, not the URL. */
   | { readonly seq: number; readonly type: 'show_trade'; readonly tradeId: string }
   | { readonly seq: number; readonly type: 'focus_student'; readonly sessionKey: string; readonly studentId: string }
+  /** The staff screen (navigate first): StaffScreen scrolls the person voice asks about into view and outlines the row (D-156). */
+  | { readonly seq: number; readonly type: 'focus_staff'; readonly staffId: string }
   /** "Check again": the verification screen of `purpose` (a purposeKey: "session:<key>" or "self") retries, where it offers a retry. */
   | { readonly seq: number; readonly type: 'verify_retry'; readonly purpose: string }
   /** The trainer's own attendance was saved by voice (navigate to My attendance first): the screen shows its result (D-141). */
@@ -22,11 +24,20 @@ export type UiEvent =
   | { readonly seq: number; readonly type: 'show_batch_report'; readonly batchId: string }
   /** Reports (navigate first): AtRiskSection scrolls itself into view. */
   | { readonly seq: number; readonly type: 'show_at_risk' }
+  /** Reports (navigate first): StaffSection scrolls itself into view and focuses its heading (D-154). */
+  | { readonly seq: number; readonly type: 'show_staff_report' }
   /**
    * Reports (navigate first): BatchesSection opens the register sheet for one batch (`tradeId` null) or a trade's
    * batches, on `month` (a month the sheet offers). The download itself needs the trainer's tap.
    */
   | { readonly seq: number; readonly type: 'open_register'; readonly batchIds: readonly string[]; readonly tradeId: string | null; readonly month: LocalDate }
+  /**
+   * Reports (navigate first): StaffSection opens the register sheet on the staff scope and `month` (a month the sheet
+   * offers). The download itself needs the principal's tap (D-154).
+   */
+  | { readonly seq: number; readonly type: 'open_staff_register'; readonly month: LocalDate }
+  /** A record was saved by voice (a submit, the trainer's own mark, a staff mark): the session plays its "saved" cue (D-156). */
+  | { readonly seq: number; readonly type: 'saved'; readonly what: 'submit' | 'self' | 'staff' }
   | { readonly seq: number; readonly type: 'end_voice' };
 
 export type UiEventInput = { [K in UiEvent['type']]: Omit<Extract<UiEvent, { type: K }>, 'seq'> }[UiEvent['type']];

@@ -26,3 +26,8 @@
   color: var(--color-text-secondary);
   text-wrap: pretty;
 }
+.note {
+  font: var(--type-body-medium);
+  letter-spacing: var(--ls-body-medium);
+  color: var(--color-text-secondary);
+}

@@ -44,13 +44,15 @@ export async function bootApp(): Promise<AppRuntime> {
   if (process.env.NEXT_PUBLIC_DEMO_MODE === 'true') {
     const [{ createDemoAdapters }, { prepareScenario }, { prepareSharedDemo }] = await Promise.all([import('@/demo/adapters'), import('@/demo/controller'), import('@/demo/supabase-seeder')]);
     const demo = createDemoAdapters();
-    const options = { store, preferencesStore, clock: demo.clock, simulation: demo.simulation, configOverrides: demo.configOverrides, loginAssist: demo.loginAssist };
+    // Greetings follow the real time of day while windows follow the demo clock (D-151).
+    const options = { store, preferencesStore, clock: demo.clock, wallClock: systemClock, simulation: demo.simulation, configOverrides: demo.configOverrides, loginAssist: demo.loginAssist };
     const container = await createContainer(options, { preferDevice: demo.repo.get().data === 'device', demoStoryPacks: true });
     // Shared source: today's demo story on the server before the first screen reads it (a no-op on the device source).
     await prepareSharedDemo(container);
-    // "Use demo account" prepares the picked account's story; that needs the container, built just above.
+    // "Demo accounts" prepares the picked account's story; that needs the container, built just above.
     demo.loginAssist.connect((presetId) => prepareScenario(container, demo, presetId));
-    demo.repo.subscribe(() => container.bus.emit('demo'));
+    container.onDispose(() => demo.loginAssist.connect(() => undefined));
+    container.onDispose(demo.repo.subscribe(() => container.bus.emit('demo')));
     container.services.sync.start();
     return { container, demo };
   }

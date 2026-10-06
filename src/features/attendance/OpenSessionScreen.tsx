@@ -1,7 +1,6 @@
 'use client';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useEffect } from 'react';
-import { Latin } from '@/components/ui/Latin';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ScreenLayout } from '@/components/shell/ScreenLayout';
 import { AppHeader } from '@/features/shell/AppHeader';
@@ -13,7 +12,7 @@ import { routes } from '@/lib/routes';
 import type { OpenRosterError, SessionCard } from '@/services/attendance';
 import { ProblemScreen } from '../feedback/ProblemScreen';
 import { VerificationFlow } from '../verification/VerificationFlow';
-import { useSessionLabel } from './useSessionLabel';
+import { SessionName, useSessionLabel } from './useSessionLabel';
 import { useAttendanceRoot } from './useAttendanceRoot';
 
 type Gate = { readonly kind: 'ready' | OpenRosterError; readonly card?: SessionCard };
@@ -78,7 +77,7 @@ export function OpenSessionScreen() {
         <VerificationFlow
           purpose={{ kind: 'session', key }}
           area={root.area}
-          subtitle={<Latin>{session}</Latin>}
+          subtitle={card ? <SessionName card={card} /> : undefined}
           passedSubtitle={t('verify.openingList')}
           onPassed={() => router.replace(routes.mark(key))}
           onExit={back}
@@ -101,6 +100,10 @@ export function OpenSessionScreen() {
       return <ProblemScreen kind="noConnection" params={{ session }} primary={goBack} {...signedIn} />;
     case 'no_access':
       return <ProblemScreen kind="noAccess" primary={goBack} {...signedIn} />;
+    case 'self_first':
+      // Own attendance first (D-152): the class opens after the trainer's own attendance is marked today.
+      // It names the class the user tapped, as every other gateway problem does (U16).
+      return <ProblemScreen kind="selfFirst" params={{ session }} primary={{ label: t('selfFirst.action'), href: routes.selfAttendance }} secondary={goBack} {...signedIn} />;
     default:
       return <ProblemScreen kind="notFound" {...signedIn} />;
   }

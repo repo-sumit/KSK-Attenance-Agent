@@ -2,6 +2,7 @@
  * Voice transport and audio for demos and tests — SIMULATION ONLY: no network, no microphone, no speaker.
  * `ScriptedLiveTransport` stands in for the Gemini Live socket; `SilentAudio` for the browser audio devices.
  */
+import type { Earcon } from '../voice/audio/earcons';
 import type { AudioIO, MicError } from '../voice/audio/types';
 import type { ToolResult } from '../voice/tools';
 import type {
@@ -14,11 +15,16 @@ import type {
   LiveTransport,
 } from '../voice/live/transport';
 
+/** The newest cues the transport keeps: a long scripted demo does not grow the record without a limit. */
+const EARCONS_KEPT = 100;
+
 export class ScriptedLiveTransport implements LiveTransport {
   readonly needsToken = false as const;
   /** Every sendText, in order. */
   readonly texts: string[] = [];
   readonly toolResponses: LiveToolResponse[] = [];
+  /** The newest cues SilentAudio played (D-156, at most EARCONS_KEPT), oldest first: scripted audio has no speaker. */
+  readonly earcons: Earcon[] = [];
   private streamEndCount = 0;
   private audioCount = 0;
   private readonly connectFailures: number[] = [];
@@ -27,12 +33,15 @@ export class ScriptedLiveTransport implements LiveTransport {
   private setup: LiveSetup | null = null;
   private nextCallId = 0;
   private micDenial: MicError | null = null;
+  /** Whether SilentAudio reports the agent's audio as playing (scripted audio has no duration of its own). */
+  private agentPlaying = false;
   private readonly waiting = new Map<string, (result: ToolResult) => void>();
 
   get streamEnds(): number { return this.streamEndCount; }
   /** Mic chunks sent while connected (counted, never kept). */
   get audioChunks(): number { return this.audioCount; }
   get lastSetup(): LiveSetup | null { return this.setup; }
+  get playing(): boolean { return this.agentPlaying; }
   connected(): boolean { return this.live; }
 
   async connect(_token: LiveToken | null, setup: LiveSetup, cb: LiveCallbacks): Promise<LiveConnection> {
@@ -93,6 +102,17 @@ export class ScriptedLiveTransport implements LiveTransport {
     this.emit({ goAwayMs: ms });
   }
 
+  /** The agent's line is playing (true) or has finished (false), until changed or the session's audio closes: the screen and the check texts wait for it (D-148). */
+  setPlaying(on: boolean): void {
+    this.agentPlaying = on;
+  }
+
+  /** Records a cue SilentAudio played, keeping the newest EARCONS_KEPT. */
+  recordEarcon(kind: Earcon): void {
+    this.earcons.push(kind);
+    if (this.earcons.length > EARCONS_KEPT) this.earcons.splice(0, this.earcons.length - EARCONS_KEPT);
+  }
+
   /** The next connect() fails as a socket that closed before setup completed; each call queues one more failure (tests). */
   failNextConnect(code = 1006): void {
     this.connectFailures.push(code);
@@ -124,8 +144,15 @@ export class SilentAudio implements AudioIO {
   setMicEnabled(_on: boolean): void {}
   play(_pcm: Int16Array): void { this.played += 1; }
   flush(): void {}
-  /** Never "playing": scripted audio has no duration, and a speaking state that never ends would stall waits for the model to finish. */
-  isPlaying(): boolean { return false; }
+  /** Playing only while the script says so (setPlaying): scripted audio has no duration, so it never plays by itself. */
+  isPlaying(): boolean { return this.transport.playing; }
+  /** Recorded on the transport, never over the agent's (scripted) speech, as the browser's cues. */
+  earcon(kind: Earcon): boolean {
+    if (this.isPlaying()) return false;
+    this.transport.recordEarcon(kind);
+    return true;
+  }
   level(): number { return 0; }
-  close(): void {}
+  /** The session's teardown (stop or a lost connection): nothing plays any more, so a playing(true) never outlives it. */
+  close(): void { this.transport.setPlaying(false); }
 }

@@ -23,7 +23,9 @@ import { useSession } from '@/hooks/session';
 import { useQuery } from '@/hooks/useQuery';
 import { routes } from '@/lib/routes';
 import { CORRECTION_REASON_CODES, type Correction, type CorrectionReasonCode } from '@/domain/attendance';
-import { batchWithTrade, correctionReason, markLabel, reasonKey, statusOf } from '../common/labels';
+import { BatchLabel } from '../common/BatchLabel';
+import { correctionReason, markLabel, reasonKey, statusOf } from '../common/labels';
+import { LatinText, slotted } from '../common/LatinText';
 import { ResultScreen } from '../feedback/ResultScreen';
 import styles from './Correct.module.css';
 
@@ -62,7 +64,8 @@ export function CorrectScreen() {
   const student = detail.students.find((s) => s.id === studentId);
   const current = detail.marks[studentId];
   if (!student || !current || !ctx.journey.corrections) return null;
-  const session = batchWithTrade(t, detail.card.trade, detail.card.batch);
+  // The trade is Latin master data; "Shift 1 · Unit 2" is translated (U14).
+  const session = <BatchLabel trade={detail.card.trade} batch={detail.card.batch} />;
 
   if (done)
     return (
@@ -71,7 +74,7 @@ export function CorrectScreen() {
         icon="circle-check"
         title={t('correction.resultTitle')}
         sub={<Latin>{student.name}</Latin>}
-        meta={<Latin>{session}</Latin>}
+        meta={session}
         primary={{ label: t('common.done'), onPress: () => router.replace(back) }}
         header={<AppHeader plain />}
         area="attendance"
@@ -101,7 +104,7 @@ export function CorrectScreen() {
     <ScreenLayout
       area="attendance"
       width="form"
-      header={<AppHeader back="back" title={t('correction.title')} subtitle={<Latin>{session}</Latin>} backHref={back} />}
+      header={<AppHeader back="back" title={t('correction.title')} subtitle={session} backHref={back} />}
       footer={
         <Button
           fullWidth
@@ -116,8 +119,10 @@ export function CorrectScreen() {
       <Card>
         <span className={styles.student}>
           <span className={styles.name}><Latin>{student.name}</Latin></span>
-          <span className={styles.father}>{t('roster.father', { name: student.fatherName })}</span>
-          <span className={styles.meta}><Latin>{t('correction.meta', { session, n: student.rollNo })}</Latin></span>
+          <span className={styles.father}>
+            <LatinText k="roster.father" params={{ name: student.fatherName }} latin={['name']} />
+          </span>
+          <span className={styles.meta}>{slotted(t, 'correction.meta', { session, n: student.rollNo })}</span>
         </span>
       </Card>
       <div className={styles.row}>

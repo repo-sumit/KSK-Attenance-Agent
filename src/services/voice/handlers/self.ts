@@ -46,10 +46,19 @@ function openMine(h: BaseContext): void {
 async function save(h: BaseContext): Promise<{ readonly record: StaffAttendanceRecord } | { readonly result: ToolResult }> {
   const { ctx, staffAttendance } = h.deps;
   const saved = await staffAttendance.markSelf(ctx);
-  if (saved.ok) return { record: saved.value };
+  if (saved.ok) {
+    h.deps.bus.emit({ type: 'saved', what: 'self' }); // the "saved" cue (D-156)
+    return { record: saved.value };
+  }
   const record = saved.error === 'already_marked' ? await staffAttendance.myRecord(ctx) : undefined;
   return { result: record ? already(record) : { ok: false, error: 'NOT_SAVED', instruction: SELF_NOT_SAVED } };
 }
+
+/**
+ * What the same turn goes on to after the mark (the students, D-152). It is only a follow-on: when the screen state
+ * cannot be read, the mark is still said, without it (Task 9 review M3), never "something went wrong".
+ */
+const followOn = (h: BaseContext): Promise<string> => h.afterSelfMarked().catch(() => '');
 
 /** My attendance shows the saved mark as its result (it replays the event when it mounts after the navigation). */
 const showSaved = (h: BaseContext, record: StaffAttendanceRecord): void => void h.deps.bus.emit({ type: 'self_marked', record });
@@ -69,7 +78,7 @@ export const markMyAttendance: BaseHandler = async (h) => {
     openMine(h);
     showSaved(h, done.record);
     const time = clockTime(done.record.deviceTimestamp);
-    return { ok: true, marked: true, time, instruction: selfMarkedInstruction(time) };
+    return { ok: true, marked: true, time, instruction: selfMarkedInstruction(time, await followOn(h)) };
   }
   // the check runs on the screen; a check already in progress keeps its count of face tries
   h.state.self ??= freshCheck();
@@ -80,8 +89,10 @@ export const markMyAttendance: BaseHandler = async (h) => {
 /**
  * A verification event of the check mark_my_attendance opened (events of any other check are not ours): read out as
  * a batch's are; the pass saves the mark and says so. The check is over with the pass, whatever the save says.
+ * `quiet`: the session would drop the text (Reconnect showing, a hidden pause): the mark is saved, but the lead-on to
+ * the students is left out, so nothing opens and nothing navigates (the kickoff after Reconnect or Resume re-reads).
  */
-export async function selfCheckHook(h: BaseContext, e: VerificationEvent): Promise<string | null> {
+export async function selfCheckHook(h: BaseContext, e: VerificationEvent, quiet: () => boolean = () => false): Promise<string | null> {
   const v = h.state.self;
   if (!v || e.purpose !== purposeKey(SELF)) return null;
   if (e.type !== 'granted') return followCheck(v, e, { faceRetryLimit: h.deps.ctx.journey.verification.faceRetryLimit });
@@ -89,7 +100,8 @@ export async function selfCheckHook(h: BaseContext, e: VerificationEvent): Promi
   const done = await save(h);
   if ('result' in done) return `[APP] ${done.result.instruction}`;
   showSaved(h, done.record);
-  return selfPassedEvent(clockTime(done.record.deviceTimestamp));
+  // the same turn goes on to the students (D-152): the trades, the batches, or the only open batch opened
+  return selfPassedEvent(clockTime(done.record.deviceTimestamp), quiet() ? '' : await followOn(h));
 }
 
 /** The trainer left My attendance: the check voice opened is no longer followed (a later pass there is the screen's own). */

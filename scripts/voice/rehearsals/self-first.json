@@ -1,0 +1,18 @@
+{
+  "preset": "open",
+  "lang": "en",
+  "viewport": [1280, 800],
+  "voice": "Rishi",
+  "lead": 11,
+  "simulation": { "camera": "simulated" },
+  "steps": [
+    { "say": "Yes", "gap": 30 },
+    { "say": "Electrician", "gap": 12 },
+    { "say": "Shift one, unit two", "gap": 16 },
+    { "say": "Aditi absent", "gap": 10 },
+    { "say": "That's all", "gap": 12 },
+    { "say": "Yes, submit", "gap": 12 }
+  ],
+  "tail": 8,
+  "shotEvery": 4
+}

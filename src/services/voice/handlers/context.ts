@@ -213,7 +213,8 @@ export const verifyingBatch = (flow: VoiceFlowState): boolean => flow.step === '
 /** Another step, batch or trade: what the flow targets changed (a pointer move on the same list does not count). */
 const movedOn = (a: VoiceFlowState, b: VoiceFlowState): boolean => a.step !== b.step || a.sessionKey !== b.sessionKey || a.tradeId !== b.tradeId;
 
-export function createHandlerContext(deps: MarkingDeps): HandlerContext {
+/** `afterSelfMarked`: the executor's lead-on after the trainer's own mark (D-152); it opens a batch through the executor. */
+export function createHandlerContext(deps: MarkingDeps, afterSelfMarked: () => Promise<string>): HandlerContext {
   const { ctx, plan, drafts, bus } = deps;
   const trades = tradesOf(ctx);
   const state: ExecState = {
@@ -322,6 +323,7 @@ export function createHandlerContext(deps: MarkingDeps): HandlerContext {
       state.screen = href;
       bus.emit({ type: 'navigate', href, replace });
     },
+    afterSelfMarked,
     async afterNavigate() {
       const cur = currentView(await view());
       return cur && state.flow.step === 'ROLL_CALL' ? ` The roll call is still open: then call out ${cur.call_as}.` : '';

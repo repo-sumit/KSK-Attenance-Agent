@@ -9,7 +9,7 @@ import type { I18n } from '@/i18n';
 import type { SessionCard } from '@/services/attendance';
 import type { StatusLike } from '@/components/ui/status-style';
 import type { AttendanceSummaryLabels, SummaryItem } from '@/components/ui/AttendanceSummary';
-import { minutesOfDay, parseTime, toLocalDate } from '@/lib/time';
+import { dayPart, minutesOfDay, parseTime, toLocalDate, type DayPart } from '@/lib/time';
 
 type T = I18n['t'];
 type F = I18n['format'];
@@ -67,9 +67,9 @@ export function firstName(member: Pick<StaffMember, 'name'>): string {
   return parts[0] ?? member.name;
 }
 
-export function greetingKey(now: Date): 'greeting.morning' | 'greeting.afternoon' | 'greeting.evening' {
-  const hour = Number(new Intl.DateTimeFormat('en-GB', { hour: 'numeric', hourCycle: 'h23', timeZone: 'Asia/Kolkata' }).format(now));
-  return hour < 12 ? 'greeting.morning' : hour < 17 ? 'greeting.afternoon' : 'greeting.evening';
+/** The greeting for the real time of day (D-151): callers pass `ctx.wallClock.now()`, never the app clock. */
+export function greetingKey(now: Date): `greeting.${DayPart}` {
+  return `greeting.${dayPart(now)}`;
 }
 
 export const todayOf = (now: Date) => toLocalDate(now);
@@ -112,11 +112,16 @@ export function statusNames(t: T): Record<StatusCode, string> {
 /** A presence weight as people read it: ½ for a half day, otherwise the number. */
 const weightText = (f: F, weight: number) => (weight === 0.5 ? '½' : f.number(weight));
 
-/** Labels for AttendanceSummary (D-069): the group total ('Students' or 'Staff') and the Present breakdown. */
-export function summaryLabels(t: T, f: F, group: 'students' | 'staff' = 'students'): AttendanceSummaryLabels {
+const TOTAL_KEYS = { students: 'roster.tileStudents', staff: 'staff.tileStaff', days: 'reports.tileDays' } as const;
+
+/**
+ * Labels for AttendanceSummary (D-069): the group total ('Students', 'Staff', or 'Days' for one person's days in a
+ * report) and the Present breakdown.
+ */
+export function summaryLabels(t: T, f: F, group: 'students' | 'staff' | 'days' = 'students'): AttendanceSummaryLabels {
   const status = statusNames(t);
   return {
-    total: t(group === 'staff' ? 'staff.tileStaff' : 'roster.tileStudents'),
+    total: t(TOTAL_KEYS[group]),
     status,
     notMarked: t('status.not_marked'),
     number: (n) => f.number(n),

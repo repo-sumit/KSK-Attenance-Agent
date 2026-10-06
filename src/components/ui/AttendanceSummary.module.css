@@ -19,6 +19,41 @@
 }
 .lead {
   min-width: 0;
+  /* The lead measures itself: its date shortens when the lead column (not the whole band) is narrow. */
+  container-type: inline-size;
+}
+/* SummaryMeta: one quiet line; each part stays whole, and the dot follows its part so no wrapped line starts with it. */
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-4);
+  font: var(--type-label-small);
+  letter-spacing: var(--ls-label-small);
+  color: var(--color-text-secondary);
+}
+.meta > svg {
+  flex: none;
+  margin-right: var(--space-4);
+}
+.metaPart {
+  white-space: nowrap;
+}
+.metaPart:not(:last-child)::after {
+  content: '·';
+  margin-inline: var(--space-4) 0;
+}
+/* SummaryDate: the long date where the lead has room (a desktop roster lead is about 350px), the short one under 340px of lead (phones, tablets). */
+.short {
+  display: none;
+}
+@container (max-width: 339px) {
+  .long {
+    display: none;
+  }
+  .short {
+    display: inline;
+  }
 }
 .tiles {
   display: grid;

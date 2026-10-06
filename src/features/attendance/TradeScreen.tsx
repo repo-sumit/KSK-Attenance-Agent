@@ -1,5 +1,6 @@
 'use client';
 import { useSearchParams } from 'next/navigation';
+import { Latin } from '@/components/ui/Latin';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ScreenLayout } from '@/components/shell/ScreenLayout';
 import { AppHeader } from '@/features/shell/AppHeader';
@@ -22,7 +23,7 @@ export function TradeScreen() {
   const trade = ctx.data.trades.find((x) => x.id === tradeId);
   const monitoring = ctx.journey.homeVariant === 'institute' || (ctx.access.tradeWideViewTradeId === tradeId && !ctx.access.tradeIds.includes(tradeId));
   const visible = trade && (ctx.access.tradeIds.includes(trade.id) || ctx.access.tradeWideViewTradeId === trade.id);
-  const { data } = useQuery(`trade:${tradeId}`, () => (visible ? attendance.boardForTrade(ctx, tradeId) : Promise.resolve([])), ['attendance', 'offline', 'corrections']);
+  const { data } = useQuery(`trade:${tradeId}`, () => (visible ? attendance.boardForTrade(ctx, tradeId) : Promise.resolve([])), ['attendance', 'offline', 'corrections', 'staff']);
 
   if (!trade || !visible) return <ProblemScreen kind="notFound" header={<AppHeader plain />} area={root.area} />;
   const overview = ctx.access.tradeWideViewTradeId === tradeId;
@@ -31,7 +32,7 @@ export function TradeScreen() {
       area={root.area}
       header={
         <AppHeader back="back"
-          title={trade.name}
+          title={<Latin>{trade.name}</Latin>}
           subtitle={monitoring || overview ? t('common.todayDate', { date: format.longDate(toLocalDate(ctx.clock.now())) }) : t('selection.selectBatch')}
           backHref={root.href}
         />

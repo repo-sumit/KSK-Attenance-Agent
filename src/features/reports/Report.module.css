@@ -50,6 +50,19 @@
   letter-spacing: var(--ls-body-small);
   color: var(--color-text-secondary);
 }
+/* Report parts (the summary, a row's subtitle): several short parts stay whole and the dot follows its part (U9). */
+.parts {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--space-4);
+}
+.joined > span {
+  white-space: nowrap;
+}
+.joined > span:not(:last-child)::after {
+  content: '·';
+  margin-inline: var(--space-4) 0;
+}
 .print {
   align-self: center;
 }

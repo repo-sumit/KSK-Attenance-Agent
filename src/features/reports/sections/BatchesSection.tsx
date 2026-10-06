@@ -1,7 +1,8 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
+import { scrollIntoViewSettled } from '@/lib/scroll';
 import { Disclosure } from '@/components/ui/Disclosure';
-import { EmptyState } from '@/components/ui/EmptyState';
+import { EmptyNote } from '@/components/ui/EmptyState';
 import { Latin } from '@/components/ui/Latin';
 import { Section } from '@/components/ui/Section';
 import { Skeleton } from '@/components/ui/Skeleton';
@@ -101,7 +102,8 @@ export function BatchesSection({ title }: { readonly title: string }) {
       {!data ? (
         <Skeleton variant="rows" leading="none" count={2} label={t('common.loading')} />
       ) : !data.batches.length ? (
-        <EmptyState icon="users" title={t('reports.noStudentData')} />
+        // An empty section on a populated page: the quiet card (D-159), not a screen's empty state.
+        <EmptyNote>{t('reports.noStudentData')}</EmptyNote>
       ) : (
         <TradeGroups
           trades={ctx.data.trades}
@@ -151,7 +153,8 @@ function BatchRow({ item, threshold, reveal }: { readonly item: BatchOverview; r
   useEffect(() => {
     if (!reveal) return;
     const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-    row.current?.scrollIntoView?.({ block: 'start', behavior: reduced ? 'auto' : 'smooth' });
+    // Held in view while the sections above it finish loading (they grow and would push it away).
+    return row.current ? scrollIntoViewSettled(row.current, reduced) : undefined;
   }, [reveal]);
   const hide = () => {
     setOpen(false);

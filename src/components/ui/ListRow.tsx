@@ -16,10 +16,16 @@ interface ListRowProps {
   readonly minHeight?: 56 | 64 | 72;
   readonly tone?: 'default' | 'danger';
   readonly titleStyle?: 'title' | 'label';
+  /** A button row that can't be pressed right now (another row is working). */
+  readonly disabled?: boolean;
+  /** A button row that is working (its trailing slot shows the progress). */
+  readonly busy?: boolean;
+  /** The highlighted choice in a list of choices (aria-current). */
+  readonly current?: boolean;
 }
 
 /** Row inside a List card: 16/12 padding, divider between rows (DS list item). */
-export function ListRow({ title, subtitle, leading, trailing, href, onClick, minHeight = 64, tone = 'default', titleStyle = 'title' }: ListRowProps) {
+export function ListRow({ title, subtitle, leading, trailing, href, onClick, minHeight = 64, tone = 'default', titleStyle = 'title', disabled, busy, current }: ListRowProps) {
   const body = (
     <>
       {leading}
@@ -38,7 +44,7 @@ export function ListRow({ title, subtitle, leading, trailing, href, onClick, min
           {body}
         </Link>
       ) : onClick ? (
-        <button type="button" className={classes} onClick={onClick}>
+        <button type="button" className={classes} onClick={onClick} disabled={disabled} aria-busy={busy || undefined} aria-current={current || undefined}>
           {body}
         </button>
       ) : (

@@ -15,7 +15,7 @@ beforeEach(() => {
 const STUDENT: Student = { id: 'S2', batchId: 'ele-s1u2', rollNo: 2, name: 'Aditi Joshi', fatherName: 'Ramesh Joshi' };
 const LABELS: RowLabels = {
   status: { present: 'Present', absent: 'Absent', leave: 'Leave', half_day: 'Half day', ojt: 'OJT' },
-  father: ['Father: ', ''],
+  father: (name) => `Father: ${name}`,
   presentFor: 'Present for', firstHalf: 'First half', secondHalf: 'Second half', leaveType: 'Leave type',
   leaveTypes: { sick: 'Sick', casual: 'Casual', medical: 'Medical' },
   leaveUntil: 'Until', ojtNote: 'On OJT', notMarked: 'Not marked', needsHalf: 'Choose a half', needsLeaveType: 'Choose a type',

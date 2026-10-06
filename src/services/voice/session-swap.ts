@@ -12,7 +12,8 @@ import type { TokenError, TokenFailure } from './live/token-client';
 import type { LiveCallbacks, LiveConnection, LiveEvent, LiveSetup, LiveToken, LiveToolResponse, LiveTransport } from './live/transport';
 import type { Timers } from './session-types';
 
-const TOKEN_TIMEOUT_MS = 8000;
+/** 8 s; 20 s in a development build, where the token route may still be compiling on demand (D-158). */
+const tokenTimeoutMs = (): number => (process.env.NODE_ENV === 'development' ? 20_000 : 8_000);
 const SWAP_MARGIN_MS = 2500;
 const RETRY_MS = 3000;
 const MAX_HELD_CHUNKS = 75; // the newest 3 s of 40 ms chunks: older speech is stale by then
@@ -36,6 +37,8 @@ export interface LinkHost {
   quiet(): boolean;
   /** The first text of the connection a swap moved to (null: say nothing, e.g. while the trainer uses the screen). */
   refresh(): Promise<string | null>;
+  /** The swap sent that first text to the new connection: the model owes its reply now. */
+  sentRefresh(): void;
 }
 
 interface Ticket { readonly transport: LiveTransport; readonly token: LiveToken | null }
@@ -205,7 +208,7 @@ export class LiveLink {
         resolve(result);
       };
       const cancel = () => done(err('unavailable', { why: 'cancelled' }));
-      const timer = timers.setTimeout(() => done(err('unavailable', { why: 'timeout' })), TOKEN_TIMEOUT_MS);
+      const timer = timers.setTimeout(() => done(err('unavailable', { why: 'timeout' })), tokenTimeoutMs());
       this.tokenWaits.add(cancel);
       Promise.resolve()
         .then(() => this.host.token())
@@ -311,7 +314,7 @@ export class LiveLink {
     this.hold = null;
     if (!this.conn) return this.host.lost(); // the new connection closed during the refresh
     // The refresh carries the facts, taps included: held [APP] texts are not replayed.
-    if (text) this.sendText(text);
+    if (text && this.sendText(text)) this.host.sentRefresh();
     for (const pcm of [...hold.preRoll, ...hold.audio]) this.sendAudio(pcm);
     if (hold.end) this.streamEnd();
     this.host.log(`switched connections: resume ${slot.resumed ? 'yes' : 'no'}, ${hold.audio.length} chunks carried over`);

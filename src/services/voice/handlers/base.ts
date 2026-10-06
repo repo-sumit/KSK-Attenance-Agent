@@ -53,7 +53,7 @@ export interface CheckMemory {
 export const freshCheck = (): CheckMemory => ({ prompts: new Set(), cameraPending: false, faceFailures: 0, need: null });
 
 /** What the last report answer was about: show_report shows exactly that (a failed lookup leaves it as it was). */
-export type ReportFocus = { readonly kind: 'overview' } | { readonly kind: 'batch'; readonly batchId: string } | { readonly kind: 'at_risk' };
+export type ReportFocus = { readonly kind: 'overview' } | { readonly kind: 'batch'; readonly batchId: string } | { readonly kind: 'at_risk' } | { readonly kind: 'staff' };
 
 export interface BaseState {
   /** The last href voice navigated to, consumed by the next screen signal. */
@@ -75,6 +75,12 @@ export interface BaseState {
   staffTicket: ConfirmTicket | null;
   /** Who and what the last mark_staff question asked about, until it is saved: a refresh asks it again with a new code. */
   staffQuestion: { readonly staffId: string; readonly status: StatusCode } | null;
+  /**
+   * The open mark_remaining_staff question's code and status (D-156): its own ticket, so a mark_staff question asked in
+   * the same breath does not void it (each would void the other in turn); a save of either voids the other by its records.
+   */
+  staffRestTicket: ConfirmTicket | null;
+  staffRestQuestion: { readonly status: StatusCode } | null;
 }
 
 export interface BaseContext {
@@ -84,11 +90,15 @@ export interface BaseContext {
   navigate(href: string, replace: boolean): void;
   /** What a navigation result adds for the flow in progress (a roll call still open), or ''. */
   afterNavigate(): Promise<string>;
+  /** After the trainer's own mark (D-152): what the same turn goes on to (the students), or ''. */
+  afterSelfMarked(): Promise<string>;
 }
 
 export type BaseHandler = (h: BaseContext, args: Readonly<Record<string, unknown>>) => Promise<ToolResult>;
 
-export const freshBaseState = (): BaseState => ({ lastNav: null, screen: null, away: null, endRequested: false, report: null, self: null, staffTicket: null, staffQuestion: null });
+export const freshBaseState = (): BaseState => ({
+  lastNav: null, screen: null, away: null, endRequested: false, report: null, self: null, staffTicket: null, staffQuestion: null, staffRestTicket: null, staffRestQuestion: null,
+});
 
 /** `instruction` last, so an extra field can never replace it (MVP-05 L430-L435). */
 export function fail(error: string, instruction: string, extra: Record<string, unknown> = {}): ToolResult {

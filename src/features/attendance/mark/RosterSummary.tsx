@@ -1,8 +1,9 @@
 'use client';
 import { useMemo, type ReactNode } from 'react';
-import { AttendanceSummary } from '@/components/ui/AttendanceSummary';
+import { AttendanceSummary, SummaryDate, SummaryMeta } from '@/components/ui/AttendanceSummary';
 import { Banner } from '@/components/ui/Banner';
 import { Icon } from '@/components/ui/icons/Icon';
+import { TopBand } from '@/components/shell/TopBand';
 import type { MarkCounts } from '@/domain/marking';
 import type { StatusCode } from '@/domain/status';
 import { useI18n } from '@/hooks/i18n';
@@ -42,13 +43,7 @@ export function RosterSummary({ context, counts, statuses, showNotMarked, staleS
   const labels = useMemo(() => summaryLabels(t, format), [t, format]);
   const parts: ReactNode[] = [];
   if (context.label) parts.push(<span key="label">{context.label}</span>);
-  if (context.date)
-    parts.push(
-      <span key="date">
-        <span className={styles.long}>{context.date.long}</span>
-        <span className={styles.short}>{context.date.short}</span>
-      </span>,
-    );
+  if (context.date) parts.push(<SummaryDate key="date" long={context.date.long} short={context.date.short} />);
   if (context.range) parts.push(<span key="range">{context.range}</span>);
   const closing = context.closesAt ? (
     // One stable live region: its words change when the window is about to close.
@@ -58,28 +53,13 @@ export function RosterSummary({ context, counts, statuses, showNotMarked, staleS
     </span>
   ) : null;
   return (
-    <div className={styles.summary}>
-      <AttendanceSummary
-        counts={counts}
-        statuses={statuses}
-        labels={labels}
-        showNotMarked={showNotMarked}
-        lead={
-          <p className={styles.meta}>
-            <Icon name="clock" size={14} />
-            {[...parts, closing].filter(Boolean).map((part, i) => (
-              <span key={i} className={styles.metaPart}>
-                {part}
-              </span>
-            ))}
-          </p>
-        }
-      />
+    <TopBand>
+      <AttendanceSummary counts={counts} statuses={statuses} labels={labels} showNotMarked={showNotMarked} lead={<SummaryMeta icon="clock" parts={closing ? [...parts, closing] : parts} />} />
       {staleSince && (
         <Banner tone="warning" icon="alert">
           {t('roster.stale', { date: staleSince })}
         </Banner>
       )}
-    </div>
+    </TopBand>
   );
 }

@@ -92,4 +92,20 @@ describe('PcmPlayer', () => {
     expect(sources[0].stop).toHaveBeenCalled();
     expect(ctx.close).not.toHaveBeenCalled();
   });
+  it('speech that arrives while a cue sounds starts when the cue ends (holdUntil, D-156); the hold never delays later speech', () => {
+    const { ctx, sources } = fakeContext();
+    const player = new PcmPlayer(ctx as unknown as AudioContext);
+    player.holdUntil(10.18);
+    player.play(chunk(2400)); // 100 ms
+    expect(sources[0].start).toHaveBeenCalledWith(10.18);
+    player.play(chunk(2400));
+    expect(sources[1].start).toHaveBeenCalledWith(10.18 + 0.1); // still gapless after it
+    ctx.currentTime = 12; // the hold is long past
+    player.play(chunk(2400));
+    expect(sources[2].start).toHaveBeenCalledWith(12.05);
+    // a hold earlier than the queue changes nothing
+    player.holdUntil(11);
+    player.play(chunk(2400));
+    expect(sources[3].start).toHaveBeenCalledWith(12.05 + 0.1);
+  });
 });

@@ -22,8 +22,11 @@ import styles from './AttendanceBoard.module.css';
 /** Voice showed Home: a trade it chose before that is not replayed over the board Home mounts (the F7 replay's bound). */
 const homeShown = (e: UiEvent) => e.type === 'navigate' && e.href.split('?')[0] === routes.home;
 
-/** The instructor/principal "which class?" block; the same component serves Home and the Attendance tab. */
-export function AttendanceBoard({ showGroupTitles = true }: { readonly showGroupTitles?: boolean }) {
+/**
+ * The instructor/principal "which class?" block; the same component serves Home and the Attendance tab. `groupLevel`:
+ * the trade groups' heading level, 3 under a Home section ("Your batches"), 2 where the board is the page's top level.
+ */
+export function AttendanceBoard({ showGroupTitles = true, groupLevel = 2 }: { readonly showGroupTitles?: boolean; readonly groupLevel?: 2 | 3 }) {
   const { t, format } = useI18n();
   const ctx = useSession();
   const toast = useToast();
@@ -116,7 +119,7 @@ export function AttendanceBoard({ showGroupTitles = true }: { readonly showGroup
         <div className={styles.groups}>
           <div className={styles.groupGrid}>
             {data.groups.map((group) => (
-              <Section key={group.trade.id} variant="label" title={<Latin>{group.trade.name}</Latin>} className={group.cards.length > 1 ? styles.span : undefined}>
+              <Section key={group.trade.id} level={groupLevel} variant="label" title={<Latin>{group.trade.name}</Latin>} className={group.cards.length > 1 ? styles.span : undefined}>
                 <SessionList cards={group.cards} viewer="marker" />
               </Section>
             ))}

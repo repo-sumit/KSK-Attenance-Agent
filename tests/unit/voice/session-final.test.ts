@@ -1,6 +1,6 @@
 /**
  * VoiceSession, final fix wave (task-final-session): the spoke-after-the-question counters (F4), the idle clock
- * with Use screen, a hidden page, taps, screens and verification (F5), hooks while Reconnect shows (F6), quiet
+ * with Pause, a hidden page, taps, screens and verification (F5), hooks while Reconnect shows (F6), quiet
  * audio while paused (m8), the consecutive connect-failure stop (m9), and the PAUSE_EVENT a swap held (C2).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -102,7 +102,7 @@ describe('the trainer spoke after the question (F4, D-082)', () => {
 });
 
 describe('the idle clock (F5)', () => {
-  it('Use screen on a visible page holds it: 125 s paused stays paused, and the clock runs again after Resume', async () => {
+  it('Pause on a visible page holds it: 125 s paused stays paused, and the clock runs again after Resume', async () => {
     const { h, s } = await live();
     s.pause();
     await vi.advanceTimersByTimeAsync(125_000);
@@ -123,7 +123,7 @@ describe('the idle clock (F5)', () => {
     expect(s.getState()).toMatchObject({ status: 'error', error: 'idle', canReconnect: false });
   });
 
-  it('Use screen while the page is hidden is not held either', async () => {
+  it('Pause while the page is hidden is not held either', async () => {
     const { s } = await live();
     s.pause();
     s.setHidden(true);
@@ -195,7 +195,7 @@ describe('while Reconnect shows (F6)', () => {
   });
 });
 
-describe('Use screen keeps the agent quiet (m8)', () => {
+describe('Pause keeps the agent quiet (m8)', () => {
   it('plays no audio that arrives while paused, and plays again after Resume', async () => {
     const { h, s } = await live();
     h.transport.emit({ audio: [new Int16Array(4)] });

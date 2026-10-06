@@ -1,33 +1,4 @@
-/* The fixed band above the roster: white, full bleed, its content on the reading column. */
-.summary {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-12);
-  padding: var(--space-12) var(--gutter-inline);
-  background: var(--color-background-surface-raised);
-  border-bottom: var(--divider-thin) solid var(--color-border-subtle);
-}
-.meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  column-gap: var(--space-4);
-  font: var(--type-label-small);
-  letter-spacing: var(--ls-label-small);
-  color: var(--color-text-secondary);
-}
-.meta > svg {
-  flex: none;
-  margin-right: var(--space-4);
-}
-/* Each part stays whole ("Closes at 2:00 PM" never splits); the dot joins it to the one before. */
-.metaPart {
-  white-space: nowrap;
-}
-.metaPart + .metaPart::before {
-  content: '·';
-  margin-right: var(--space-4);
-}
+/* The roster's closing time inside the band's SummaryMeta: it turns into the warning in place. */
 .closes {
   display: inline-flex;
   align-items: center;
@@ -36,18 +7,6 @@
 .closingSoon {
   color: var(--color-text-warning);
   font-weight: var(--font-weight-semibold);
-}
-/* "Monday, 28 September" where it fits, "Mon, 28 Sep" on narrow phones, so the line stays one line. */
-.short {
-  display: none;
-}
-@container (max-width: 399px) {
-  .long {
-    display: none;
-  }
-  .short {
-    display: inline;
-  }
 }
 /* The hint opens the list as a quiet line on white, aligned with the roll numbers. */
 .hint {

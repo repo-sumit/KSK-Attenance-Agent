@@ -5,7 +5,7 @@ import type { InstituteMatch, InstructorMatch } from '@/services/auth';
 interface LoginFlow {
   readonly institute: InstituteMatch | null;
   readonly instructor: InstructorMatch | null;
-  /** The account picked from the login assist in this attempt (demo builds), so later steps can offer its values. */
+  /** The account picked from the login assist in this attempt (demo builds), so later steps look up its Trainer ID. */
   readonly assistAccount: string | null;
   setInstitute(match: InstituteMatch | null): void;
   setInstructor(match: InstructorMatch | null): void;

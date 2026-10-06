@@ -18,6 +18,8 @@ export class SessionService {
     private readonly configuration: ConfigurationService,
     private readonly face: FaceMatchService,
     private readonly clock: Clock,
+    /** The real time of day for greetings (D-151); the app clock when none is given. */
+    private readonly wallClock: Clock = clock,
   ) {}
 
   async load(): Promise<SessionContext | undefined> {
@@ -34,6 +36,6 @@ export class SessionService {
     const access = resolveAccess(user, config, data, toLocalDate(this.clock.now()));
     const enrolled = await this.face.isEnrolled(user.id);
     const journey = deriveJourney(config, user, access, enrolled);
-    return { user, institute, config, access, journey, data, clock: this.clock };
+    return { user, institute, config, access, journey, data, clock: this.clock, wallClock: this.wallClock };
   }
 }

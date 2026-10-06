@@ -1,0 +1,20 @@
+/* The Staff attendance section (D-154): white rows like every Reports list, the row's status lines stacked. */
+
+/* Today's status, days present of days marked, and days not marked: one short line each. */
+.lines {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+.days {
+  font: var(--type-body-small);
+  letter-spacing: var(--ls-body-small);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+/* "Choose dates · print": the detail report, at the end of the section, centred as every end-of-list action (U15). */
+.more {
+  display: flex;
+  justify-content: center;
+}

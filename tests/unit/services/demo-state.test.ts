@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { createDemoAdapters } from '@/demo/adapters';
 import { PRESETS, PRESETS_VERSION } from '@/demo/presets';
 import { DEFAULT_DEMO_STATE, decodeDemoState, upgradeDemoState } from '@/demo/state';
+import { MemoryStore } from '@/lib/kv-store';
+import { createMockContainer } from '@/services/container';
 import { DEFAULT_SIMULATION } from '@/services/simulation';
 
 const open = PRESETS.find((p) => p.id === 'open')!;
@@ -12,11 +15,31 @@ const preVoice = (patch: Record<string, unknown> = {}) => ({
   version: 1,
   presetId: 'open',
   persona: 'open',
-  skipLogin: false,
   config: { verification: { geoMode: 'fencing', face: true }, marking: { defaultStatus: 'present' } },
   simulation: { ...DEFAULT_SIMULATION, speed: 0.5, camera: 'real', liveness: 'auto', voice: 'live', location: 'outside' },
   clock: { mode: 'real' },
   ...patch,
+});
+
+describe('demo state: a fresh or reset demo is the Open instructor story', () => {
+  it('has the Open instructor preset\'s configuration, so Voice Agent is on', () => {
+    expect(DEFAULT_DEMO_STATE.presetId).toBe('open');
+    expect(DEFAULT_DEMO_STATE.config).toEqual(open.config);
+    expect(DEFAULT_DEMO_STATE.config.voice).toEqual({ enabled: true });
+    // A browser with nothing stored, or a stored state that is not a demo state, starts there too.
+    expect(decodeDemoState(undefined).config.voice).toEqual({ enabled: true });
+    expect(decodeDemoState({ version: 0 }).config.voice).toEqual({ enabled: true });
+  });
+
+  it('no longer carries "Skip login screens" (the panel\'s Sign in as signs straight in)', () => {
+    expect('skipLogin' in DEFAULT_DEMO_STATE).toBe(false);
+  });
+
+  it('resolves to a configuration with Voice Agent on for a fresh browser', () => {
+    const demo = createDemoAdapters();
+    const app = createMockContainer({ store: new MemoryStore(), preferencesStore: new MemoryStore(), clock: demo.clock, simulation: demo.simulation, configOverrides: demo.configOverrides });
+    expect(app.services.configuration.base().voice.enabled).toBe(true);
+  });
 });
 
 describe('demo state: presets version', () => {
@@ -39,10 +62,9 @@ describe('demo state: presets version', () => {
     expect(decodeDemoState(preVoice({ presetsVersion: 1 })).config).toEqual(open.config);
   });
 
-  it('keeps the persona and the sign-in choices, and applies the stored preset\'s own simulation', () => {
-    const decoded = decodeDemoState(preVoice({ presetId: 'offline', persona: 'principal', skipLogin: true }));
+  it('keeps the persona, and applies the stored preset\'s own simulation', () => {
+    const decoded = decodeDemoState(preVoice({ presetId: 'offline', persona: 'principal' }));
     expect(decoded.persona).toBe('principal');
-    expect(decoded.skipLogin).toBe(true);
     expect(decoded.config).toEqual(offline.config);
     expect(decoded.simulation.online).toBe(false);
   });

@@ -4,7 +4,10 @@ import { VoiceSession } from '@/services/voice/session';
 import { makeSessionDeps, type HarnessOptions } from './session-harness';
 
 beforeEach(() => vi.useFakeTimers());
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllEnvs();
+});
 
 /**
  * "Voice isn't available right now" has several causes; the `?voiceDebug=1` log (ids and codes only) names the
@@ -47,6 +50,26 @@ describe('a start that ends as unavailable says which step failed in the debug l
   it('the token did not come within 8 s', async () => {
     const { error, lines } = await failedStart({ token: () => new Promise(() => undefined) }, {}, () => vi.advanceTimersByTimeAsync(8_000));
     expect(error).toBe('unavailable');
+    expect(lines).toContain('token failed (timeout)');
+  });
+
+  it('a development build waits 20 s for the token (D-158): the route may still be compiling', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    const h = makeSessionDeps({ token: () => new Promise(() => undefined) });
+    const lines: string[] = [];
+    const s = new VoiceSession({ ...h.deps, log: (line) => lines.push(line) });
+    s.start();
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(s.getState().status).toBe('connecting');
+    expect(lines).not.toContain('token failed (timeout)');
+    await vi.advanceTimersByTimeAsync(12_000);
+    await vi.waitFor(() => expect(s.getState().status).toBe('error'));
+    expect(lines).toContain('token failed (timeout)');
+  });
+
+  it('a production build still gives up on the token after 8 s', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    const { lines } = await failedStart({ token: () => new Promise(() => undefined) }, {}, () => vi.advanceTimersByTimeAsync(8_000));
     expect(lines).toContain('token failed (timeout)');
   });
 

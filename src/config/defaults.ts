@@ -8,7 +8,7 @@ import type { AppConfiguration } from './types';
 export const PRODUCT_DEFAULTS: AppConfiguration = {
   identity: { instituteConfirmStep: true, instructorConfirmStep: true, secondFactor: 'none', principalCanCorrect: true, principalCanMarkStudents: true },
   mapping: { model: 'trade', tradeAutoselect: true, multiTrade: 'named', allBatchInstructors: false },
-  verification: { geoMode: 'tagging', fenceRadiusM: 500, fencePassPrompt: 'silent', face: false, faceRetryLimit: null },
+  verification: { geoMode: 'tagging', fenceRadiusM: 500, fencePassPrompt: 'silent', face: false, faceRetryLimit: null, selfPassReuseMinutes: 0 },
   marking: {
     frequency: 'once',
     twiceShape: 'halves',
@@ -23,7 +23,7 @@ export const PRODUCT_DEFAULTS: AppConfiguration = {
     twiceSplit: { 1: '11:00', 2: '17:00' },
     instituteOverride: false,
   },
-  staff: { enabled: false, selfMarking: true, captureTrigger: 'explicit_tap', principalMarking: true, statusSet: ['present', 'absent'] },
+  staff: { enabled: false, selfMarking: true, captureTrigger: 'explicit_tap', principalMarking: true, statusSet: ['present', 'absent'], selfBeforeStudents: false },
   reports: {
     enabled: true,
     instructorScope: 'both',
@@ -31,6 +31,7 @@ export const PRODUCT_DEFAULTS: AppConfiguration = {
     dateRanges: ['day', 'month', 'custom'],
     pdfDownload: true,
     eligibilityThresholdPct: 75,
+    staffThresholdPct: 90,
     leaderboardSort: 'high_first',
     trendMonths: 3,
     windowDays: 30,
@@ -53,7 +54,8 @@ export const PRODUCT_DEFAULTS: AppConfiguration = {
     languages: ['en'],
     defaultLanguage: 'en',
     markingStyle: 'auto',
-    voiceName: 'Kore',
+    voiceName: 'Achernar',
+    voiceNames: { en: 'Achernar' },
     maxMinutesPerSession: 20,
     idleTimeoutSeconds: 120,
     dailyMinutesPerTrainer: 60,

@@ -19,6 +19,7 @@
     "check:demo": "node scripts/check-demo-stripped.mjs",
     "voice:spike-token": "node --env-file=.env.development scripts/voice/spike-token.mjs",
     "voice:spike-voices": "node --env-file=.env.development scripts/voice/spike-voices.mjs",
+    "voice:ui-rehearsal": "node scripts/voice/ui-rehearsal.mjs",
     "test:voice-live": "node --env-file=.env.development ./node_modules/vitest/vitest.mjs run --config vitest.voice-live.config.mts",
     "test:supabase-live": "vitest run --config vitest.supabase-live.config.mts"
   },

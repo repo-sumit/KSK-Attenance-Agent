@@ -3,6 +3,7 @@
  * never silently resolved. Warnings flag combinations the PRD calls risky.
  */
 import type { MasterData } from '@/domain/entities';
+import { isPrebuiltVoice } from '@/domain/voice/voices';
 import type { AppConfiguration } from './types';
 
 export interface ValidationIssue {
@@ -43,8 +44,15 @@ export function validateConfiguration(config: AppConfiguration, ctx: ValidationC
     add('error', 'language_count', 'A state ships between one and three languages.');
   if (staff.enabled && !staff.selfMarking && !staff.principalMarking)
     add('error', 'staff_no_path', 'staff.attendance is on but neither capture path is enabled.');
+  if (staff.selfBeforeStudents && !(staff.enabled && staff.selfMarking))
+    add('error', 'self_before_students_needs_self_marking', 'staff.self_before_students needs staff.attendance with staff.self_marking.');
+  const reuse = verification.selfPassReuseMinutes;
+  if (!Number.isInteger(reuse) || reuse < 0 || reuse > 60)
+    add('error', 'self_pass_reuse_minutes', 'verify.self_pass_reuse_minutes is a whole number of minutes from 0 (off) to 60.');
   if (config.reports.eligibilityThresholdPct < 1 || config.reports.eligibilityThresholdPct > 100)
     add('error', 'threshold_range', 'The at-risk threshold must be a percentage from 1 to 100.');
+  if (!(config.reports.staffThresholdPct >= 1 && config.reports.staffThresholdPct <= 100))
+    add('error', 'staff_threshold_range', 'The staff attendance threshold must be a percentage from 1 to 100.');
   if (!Number.isInteger(config.reports.trendMonths) || config.reports.trendMonths < 0 || config.reports.trendMonths > 12)
     add('error', 'trend_months', 'The attendance trend covers 0 (hidden) to 12 months.');
   const { windowDays, atRiskMinDays } = config.reports;
@@ -59,6 +67,10 @@ export function validateConfiguration(config: AppConfiguration, ctx: ValidationC
     add('error', 'voice_default_language', 'voice.default_language must be one of voice.languages.');
   if (voice.markingStyle === 'exceptions' && marking.defaultStatus !== 'present')
     add('error', 'voice_marking_style', 'Marking by exception needs mark.default_status = present.');
+  if (![voice.voiceName, ...Object.values(voice.voiceNames)].every((n) => typeof n === 'string' && isPrebuiltVoice(n)))
+    add('error', 'voice_name', 'voice.voice_name and every voice.voice_names entry must be one of the 30 prebuilt Gemini voices.');
+  if (Object.keys(voice.voiceNames).some((l) => !(voice.languages as readonly string[]).includes(l)))
+    add('error', 'voice_names_language', 'voice.voice_names may name a voice only for a language in voice.languages.');
   const whole = (n: number) => Number.isInteger(n) && n > 0;
   const limitsOk =
     whole(voice.maxMinutesPerSession) &&

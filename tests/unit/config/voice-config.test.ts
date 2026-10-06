@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { deriveJourney } from '@/config/journey';
+import { PRODUCT_DEFAULTS } from '@/config/defaults';
 import { resolveConfiguration } from '@/config/resolve';
 import { MAHARASHTRA } from '@/config/states/maharashtra';
 import { validateConfiguration } from '@/config/validate';
+import { PREBUILT_VOICES } from '@/domain/voice/voices';
 import { resolveAccess } from '@/domain/access';
 import { configWith, data, staff, TODAY } from '../../helpers/fixtures';
 
@@ -15,9 +17,36 @@ const journeyFor = (staffId: string, layer: Parameters<typeof configWith>[0] = {
 };
 
 describe('voice configuration', () => {
-  it('Maharashtra ships voice off, English and Marathi, auto style, Kore', () => {
+  it('Maharashtra ships voice off, English and Marathi, auto style, one soft voice for both languages (D-155)', () => {
     const v = resolveConfiguration({ state: MAHARASHTRA }).voice;
-    expect(v).toMatchObject({ enabled: false, languages: ['en', 'mr'], defaultLanguage: 'en', markingStyle: 'auto', voiceName: 'Kore', transcriptRetentionDays: 0 });
+    expect(v).toMatchObject({ enabled: false, languages: ['en', 'mr'], defaultLanguage: 'en', markingStyle: 'auto', voiceName: 'Achernar', transcriptRetentionDays: 0 });
+    expect(v.voiceNames).toEqual({ en: 'Achernar', mr: 'Achernar' });
+  });
+
+  it('accepts only the 30 prebuilt Gemini voice names, for the fallback and for each language', () => {
+    expect(PREBUILT_VOICES).toHaveLength(30);
+    expect(PREBUILT_VOICES).toEqual(expect.arrayContaining(['Achernar', 'Vindemiatrix', 'Sulafat', 'Gacrux', 'Despina', 'Schedar', 'Algieba', 'Charon', 'Kore']));
+    expect(codes({})).not.toContain('voice_name');
+    expect(codes({ voice: { voiceNames: { mr: 'Sulafat' } } })).not.toContain('voice_name');
+    expect(codes({ voice: { voiceName: 'Robot' } })).toContain('voice_name');
+    expect(codes({ voice: { voiceNames: { mr: 'hi_IN-indic-low' } } })).toContain('voice_name');
+    expect(codes({ voice: { voiceNames: { en: '' } } })).toContain('voice_name');
+  });
+
+  it('rejects a voice for a language voice does not speak (Task 9 review M8); the product defaults and Maharashtra are valid', () => {
+    expect(codes({})).not.toContain('voice_names_language');
+    // English only, while Maharashtra's Marathi voice stays named: rejected
+    expect(codes({ voice: { languages: ['en'] } })).toContain('voice_names_language');
+    expect(codes({ voice: { languages: ['mr'], defaultLanguage: 'mr', voiceNames: { mr: 'Sulafat' } } })).toContain('voice_names_language');
+    // the product defaults speak English only, with an English voice; Maharashtra adds Marathi and its voice
+    expect(PRODUCT_DEFAULTS.voice.languages).toEqual(['en']);
+    expect(PRODUCT_DEFAULTS.voice.voiceNames).toEqual({ en: 'Achernar' });
+    expect(validateConfiguration(PRODUCT_DEFAULTS, ctx).map((i) => i.code)).not.toContain('voice_names_language');
+    expect(resolveConfiguration({ state: MAHARASHTRA }).voice.voiceNames).toEqual({ en: 'Achernar', mr: 'Achernar' });
+  });
+
+  it('journey carries the voice per language beside the fallback', () => {
+    expect(journeyFor('st-rajesh', { voice: { enabled: true, voiceNames: { mr: 'Sulafat' } } }).voice).toMatchObject({ voiceName: 'Achernar', voiceNames: { en: 'Achernar', mr: 'Sulafat' } });
   });
 
   it('lets an institute layer switch voice on (voice.enabled is overridable)', () => {

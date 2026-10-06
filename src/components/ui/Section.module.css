@@ -24,6 +24,22 @@
   flex: 1 1 auto;
   min-width: 0;
 }
+/*
+ * The control keeps its 44px target without adding height to the line (U10): the heading keeps the rhythm of a
+ * section without one (title → subtitle 4, title → content 16, a group label → its card 8). A control that wraps
+ * under a long title stays at the end of its line.
+ */
+.titleRow > :not(:first-child) {
+  margin-block: calc((var(--touch-target-min) - var(--space-20)) / -2);
+  margin-inline-start: auto;
+}
+/*
+ * That overhang (12px) is larger than a group label's gap to its card (8px). The content after the head is positioned,
+ * so it paints above the control's box and keeps every tap on its own top edge (the batch row under "Trade register").
+ */
+.withAction > :not(.head) {
+  position: relative;
+}
 .title {
   font: var(--type-title-large);
   letter-spacing: var(--ls-title-large);

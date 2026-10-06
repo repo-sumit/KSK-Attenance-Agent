@@ -167,6 +167,21 @@ describe('VoiceProvider: the fingerprint stop', () => {
     expect(screen.getByTestId('status')).toHaveTextContent('off');
   });
 
+  it('settle (D-148): the cap scales with the simulation speed; at once while voice is off', async () => {
+    const { env, session, view } = await running();
+    const quiet = vi.spyOn(session, 'whenQuiet');
+    env.simulation.update({ speed: 0.5 });
+    const controller = new AbortController();
+    const waiting = api.settle(4000, controller.signal);
+    expect(quiet).toHaveBeenCalledWith(2000, controller.signal);
+    controller.abort();
+    await waiting;
+    act(() => api.stop());
+    view.unmount();
+    render(tree(env.app));
+    await expect(api.settle(4000)).resolves.toBeUndefined(); // no session: nothing to wait for
+  });
+
   it('stops the session when the provider unmounts (sign-out)', async () => {
     const { view, session } = await running();
     view.unmount();

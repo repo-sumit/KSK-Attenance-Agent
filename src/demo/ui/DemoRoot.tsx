@@ -9,7 +9,9 @@ import { useContainer } from '@/hooks/services';
 import { cx } from '@/lib/cx';
 import type { DemoAdapters } from '../adapters';
 import { DemoController } from '../controller';
-import { DemoPanel, DemoStatus } from './DemoPanel';
+import { firstName } from '../personas';
+import { DemoPanel, DemoStatus, useSignedInPersona } from './DemoPanel';
+import { useDemoState } from './useDemoState';
 import styles from './DemoRoot.module.css';
 
 declare global {
@@ -35,6 +37,8 @@ function PresetFromUrl({ controller }: { readonly controller: DemoController }) 
 const WIDE = '(min-width: 600px)';
 /** On <html> while the trigger floats: turns on the reserves in tokens.css (--demo-reserve-*). */
 const FLOAT_MARKER = 'data-demo-float';
+/** On <html> while the non-modal drawer is open (from 600px): the Voice Agent widget moves left of it. */
+const DRAWER_MARKER = 'data-demo-drawer';
 
 /**
  * DEMO ONLY. The presenter controls start collapsed: a small "Demo" trigger.
@@ -46,7 +50,9 @@ const FLOAT_MARKER = 'data-demo-float';
  * Phones open a modal bottom sheet; tablets and desktops open a drawer on the
  * right, below the header, that overlays the app without taking layout space,
  * so the presenter can keep using the app while changing settings. The
- * product never imports this.
+ * trigger carries the presenter mark (`presentation`), the signed-in first
+ * name from 600px ("Demo · Sunita") and, while the simulation is offline,
+ * `wifi-off` in the icon's place. The product never imports this.
  */
 export function DemoRoot({ demo, children }: { readonly demo: DemoAdapters; readonly children: ReactNode }) {
   const app = useContainer();
@@ -62,6 +68,8 @@ export function DemoRoot({ demo, children }: { readonly demo: DemoAdapters; read
   const titleId = useId();
   const [open, setOpen] = useState(false);
   const controller = useMemo(() => new DemoController(app, demo, (href) => router.push(href)), [app, demo, router]);
+  const offline = !useDemoState(demo).simulation.online;
+  const signedIn = useSignedInPersona();
 
   useEffect(() => {
     window.__kskDemo = controller;
@@ -98,6 +106,14 @@ export function DemoRoot({ demo, children }: { readonly demo: DemoAdapters; read
     return () => observer?.disconnect();
   }, [open, slot]);
 
+  // The drawer contract (cross-lane): <html data-demo-drawer> exactly while the non-modal drawer is open.
+  useLayoutEffect(() => {
+    if (!open || !drawer.current) return;
+    const html = document.documentElement;
+    html.setAttribute(DRAWER_MARKER, '');
+    return () => html.removeAttribute(DRAWER_MARKER);
+  }, [open]);
+
   // The non-modal drawer gets no native Esc handling: add it while open.
   useEffect(() => {
     if (!open) return;
@@ -131,13 +147,16 @@ export function DemoRoot({ demo, children }: { readonly demo: DemoAdapters; read
       onClick={() => (open ? close() : show())}
       onFocus={() => (triggerFocused.current = true)}
       onBlur={() => (triggerFocused.current = false)}
-      aria-label="Open demo controls"
+      aria-label={offline ? 'Open demo controls, offline' : 'Open demo controls'}
       aria-expanded={open}
       // Presenter tooling is English only (like the panel): Latin face and an English voice in Marathi too.
       lang="en"
+      data-offline={offline || undefined}
     >
-      <Icon name="sliders" size={16} />
+      {/* Offline is the setting presenters forget to undo: its icon takes the mark's place (also when icon only). */}
+      <Icon name={offline ? 'wifi-off' : 'presentation'} size={16} />
       <span className={styles.triggerText}>Demo</span>
+      {signedIn && <span className={styles.triggerName}>· {firstName(signedIn)}</span>}
     </button>
   );
 

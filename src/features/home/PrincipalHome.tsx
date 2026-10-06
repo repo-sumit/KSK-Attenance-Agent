@@ -1,12 +1,9 @@
 'use client';
 import type { ReactNode } from 'react';
 import { Button } from '@/components/ui/Button';
-import { PressableCard } from '@/components/ui/Card';
 import { Icon } from '@/components/ui/icons/Icon';
-import { IconTile } from '@/components/ui/IconWell';
 import { Latin } from '@/components/ui/Latin';
 import { List, ListRow } from '@/components/ui/ListRow';
-import { ProgressBar } from '@/components/ui/ProgressBar';
 import { Section } from '@/components/ui/Section';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ScreenLayout } from '@/components/shell/ScreenLayout';
@@ -18,45 +15,11 @@ import { toLocalDate } from '@/lib/time';
 import { sessionProgress } from '@/services/session-progress';
 import { AnnouncementBanner } from '../announcements/AnnouncementBanner';
 import { BatchLabel } from '../common/BatchLabel';
+import { slotted } from '../common/LatinText';
 import { SyncPendingCard } from '../offline/SyncPendingCard';
-import { Greeting } from './parts';
+import { CardPair, Greeting, ProgressCard } from './parts';
 import { usePrincipalOverview } from './usePrincipalOverview';
 import styles from './PrincipalHome.module.css';
-
-interface StatusCardProps {
-  readonly title: string;
-  readonly tint: 'blue' | 'green';
-  readonly icon: 'clipboard-check' | 'user-check';
-  readonly done: number;
-  readonly total: number;
-  /** "batches submitted" / "staff marked", shown after "4 of 17". */
-  readonly unit: string;
-  readonly note?: string;
-  readonly href: string;
-}
-
-function StatusCard({ title, tint, icon, done, unit, total, note, href }: StatusCardProps) {
-  const { t } = useI18n();
-  const count = t('principal.countOf', { done, total });
-  return (
-    <PressableCard href={href}>
-      <span className={styles.top}>
-        <IconTile icon={icon} tint={tint} size={40} />
-        <span className={styles.title}>{title}</span>
-        <Icon name="chevron-right" size={20} className={styles.chevron} />
-      </span>
-      <span className={styles.count}>
-        <span className={`${styles.big} tnum`}>{count}</span>
-        <span className={styles.unit}>{unit}</span>
-      </span>
-      <ProgressBar value={total ? done / total : 0} label={`${count} ${unit}`} />
-      {note && <span className={styles.note}>{note}</span>}
-    </PressableCard>
-  );
-}
-
-/** Stands in for the names while the "and N more" template is filled, so they can stay elements. */
-const SLOT = '\u0000';
 
 /**
  * One rule for both attention rows: the first two names, then "and N more".
@@ -71,14 +34,8 @@ function ShortList({ names }: { readonly names: readonly { readonly key: string;
     </span>
   ));
   if (names.length <= 2) return <>{shown}</>;
-  const [before, after] = t('principal.andMore', { list: SLOT, count: names.length - 2 }).split(SLOT);
-  return (
-    <>
-      {before}
-      {shown}
-      {after}
-    </>
-  );
+  // The names stay elements inside the translated "… and N more".
+  return <>{slotted(t, 'principal.andMore', { list: shown, count: names.length - 2 })}</>;
 }
 
 /** Institute overview: how much is submitted, what needs attention, and the two things a principal does. */
@@ -104,15 +61,15 @@ export function PrincipalHome() {
   return (
     // Staff marks saved offline wait here too; the card owns sync on Home (D-064).
     <ScreenLayout header={<AppHeader />} area="home" bottomNav banner="offline">
-      <Greeting name={t('principal.salutation')} subtitle={t('principal.greetingSub', { date: format.longDate(today), institute: ctx.institute.shortName })} />
+      <Greeting salutation={t('principal.salutation')} />
       <SyncPendingCard />
       <AnnouncementBanner />
       <Section id="today" title={t('home.todays')}>
         {!data ? (
           <Skeleton count={2} height={140} label={t('common.loading')} />
         ) : (
-          <div className={styles.cards}>
-            <StatusCard
+          <CardPair>
+            <ProgressCard
               title={t('principal.studentCard')}
               tint="blue"
               icon="clipboard-check"
@@ -123,7 +80,7 @@ export function PrincipalHome() {
               href={routes.attendance}
             />
             {ctx.journey.staff.principalStaffView && (
-              <StatusCard
+              <ProgressCard
                 title={t('principal.staffCard')}
                 tint="green"
                 icon="user-check"
@@ -133,7 +90,7 @@ export function PrincipalHome() {
                 href={routes.staff}
               />
             )}
-          </div>
+          </CardPair>
         )}
       </Section>
       {data && (missing.length > 0 || staffMissing.length > 0) && (

@@ -26,7 +26,7 @@ export function scope(voice: VoicePlan): string {
   ].filter((t): t is string => typeof t === 'string');
   return section('SCOPE', lines([
     `- You help only with this app: ${listed(topics)}.`,
-    '- For anything else, say in one short line that you can only help with this app, then return to the current step.',
+    '- For a request outside this app, say politely in one short line that it is outside what you do here, then return to the current step.',
   ]));
 }
 
@@ -34,7 +34,7 @@ export function scope(voice: VoicePlan): string {
 export function today(voice: VoicePlan): string | null {
   if (voice.marking) return null;
   return section('TODAY', lines([
-    '- The first [APP] message gives today\'s state. Say it in one line, then ask "What do you need?".',
+    '- The first [APP] message gives the greeting and today\'s state. Say the greeting exactly as given, then today\'s state in one line, then ask "How can I help?".',
     '- "aaj kaisa chal raha hai?", "how is today going?", "kitne submit hue?" -> get_status, then answer in one short line from its numbers.',
     '- Student attendance is corrected only on the screen: never say you changed a mark.',
   ]));
@@ -61,20 +61,22 @@ export function ownAttendance(voice: VoicePlan): string | null {
 export function reports(voice: VoicePlan): string | null {
   const scopeOf = voice.capabilities.reports;
   if (!scopeOf) return null;
-  const { batches, atRisk, institute } = voice.capabilities.reportSections;
+  const { batches, atRisk, institute, staff: staffReport } = voice.capabilities.reportSections;
   const ask = scopeOf === 'institute' ? '"how is the institute doing?"' : '"how are my batches doing?"';
   const asks = [
     (batches || institute) && `${ask}, "report batao" -> get_reports_overview.`,
     batches && 'A batch named ("how is shift 1 unit 2 doing?", "sabse kam attendance kiski hai?") -> get_batch_report.',
     (batches || atRisk) && 'A student ("Rahul ki attendance kitni hai?") -> get_student_report.',
     atRisk && '"kaun at risk hai?", "who may not be eligible?" -> get_at_risk.',
+    staffReport && '"how is staff attendance this month?", "staff report" -> get_staff_report.',
   ].filter((a): a is string => typeof a === 'string');
+  const registerOf = [batches && 'the batch or trade', staffReport && '"staff" for the staff register'].filter(Boolean).join(' or ');
   return section('REPORTS', lines([
     `- ${asks.join(' ')}`,
     '- Answer in one or two short sentences with the numbers the result gives. Never work out, round or guess a figure yourself, and never say a figure no tool gave you.',
     '- When the result asks which batch or student, ask that in one line.',
     '- Then offer to show it on the screen. Only after a yes call show_report.',
-    voice.capabilities.downloads && '- "register download karo", "download the register" -> download_register with the batch or trade and THIS_MONTH or LAST_MONTH (this month when not said). The trainer taps Download on the screen.',
+    voice.capabilities.downloads && `- "register download karo", "download the register" -> download_register with ${registerOf} and THIS_MONTH or LAST_MONTH (this month when not said). The trainer taps Download on the screen.`,
   ]));
 }
 
@@ -85,8 +87,9 @@ export function staff(voice: VoicePlan): string | null {
     return canOpen ? section('STAFF', '- "staff attendance", "staff ki hajeri" -> navigate with to=staff_attendance: the screen shows who is marked. You cannot mark staff yourself.') : null;
   }
   return section('STAFF', lines([
-    '- "staff ki hajeri", "who has not marked attendance?" -> get_staff_today, then answer in one or two short sentences from its counts and names.',
-    '- "mark Pradeep absent", "Sunil ko present lagao" -> mark_staff with the name and the status. It first answers NEEDS_CONFIRMATION with a confirm_token: ask its question, and only after a clear yes call mark_staff again with that confirm_token. If the answer is not a clear yes, do not call it. Never invent a code.',
+    '- "staff ki hajeri", "who has not marked attendance?" -> get_staff_today, then answer in one or two short sentences from its counts and names. The principal\'s own row is "you", never their name.',
+    '- "mark Pradeep absent", "Sunil ko present lagao" -> mark_staff with the name and the status; "mark me present", "meri attendance lagao" -> staff "me". It first answers NEEDS_CONFIRMATION with a confirm_token: ask its question, and only after a clear yes call mark_staff again with that confirm_token. If the answer is not a clear yes, do not call it. Never invent a code.',
+    '- "mark everyone else present", "baaki sab staff present" -> mark_remaining_staff with the status: one question with the count, then its confirm_token after a clear yes.',
     '- Only staff with no mark today can be marked; a mark a person made themselves stands. Marks are corrected only on the screen.',
     canOpen && '- "staff attendance kholo" -> navigate with to=staff_attendance.',
   ]));

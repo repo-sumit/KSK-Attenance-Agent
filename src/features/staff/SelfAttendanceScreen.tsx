@@ -19,7 +19,8 @@ import { useVoiceBusEvent } from '@/hooks/useVoiceBus';
 import { routes } from '@/lib/routes';
 import { toLocalDate } from '@/lib/time';
 import { ResultScreen } from '../feedback/ResultScreen';
-import { roleLine } from '../home/roleLine';
+import { RoleLine } from '../common/RoleLine';
+import { userRole } from '../home/roleLine';
 import { VerificationFlow } from '../verification/VerificationFlow';
 import styles from './Self.module.css';
 
@@ -98,7 +99,9 @@ export function SelfAttendanceScreen() {
           <Avatar name={ctx.user.name} size={48} />
           <span className={styles.who}>
             <span className={styles.name}><Latin>{ctx.user.name}</Latin></span>
-            <span className={styles.role}>{roleLine(t, ctx)}</span>
+            <span className={styles.role}>
+              <RoleLine {...userRole(t, ctx)} />
+            </span>
           </span>
         </span>
         <DetailRows

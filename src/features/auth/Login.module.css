@@ -9,20 +9,6 @@
   /* ScreenLayout's headerless padding (16px, plus the reserve for a floating demo trigger) plus 32px = the prototype's 48px. */
   padding-top: var(--space-32);
 }
-/* Short phones (320×568, or under the host's app bar): everything, including the login assist (demo builds), above the Continue bar. */
-@media (max-height: 640px) and (max-width: 599px) {
-  .bodyFirst {
-    gap: var(--space-24);
-    padding-top: var(--space-8);
-  }
-  .lockup {
-    gap: var(--space-8);
-  }
-  .emblem {
-    width: 56px;
-    height: 56px;
-  }
-}
 /* In the tablet/desktop card the shared card inset already applies. */
 @media (min-width: 600px) {
   .bodyFirst {
@@ -59,6 +45,37 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-24);
+}
+/*
+ * Short phones (320×568, or under the host's app bar): everything above the Continue bar. After the base rules, so
+ * they win. With the demo accounts (demo builds only) the emblem sits beside the name and the form is tighter, so the
+ * first account is above the bar too; the rest scroll.
+ */
+@media (max-height: 640px) and (max-width: 599px) {
+  .bodyFirst {
+    gap: var(--space-24);
+    padding-top: var(--space-8);
+  }
+  .lockup {
+    gap: var(--space-8);
+  }
+  .emblem {
+    width: 56px;
+    height: 56px;
+  }
+  .bodyFirst:has([data-login-assist]) .lockup {
+    flex-direction: row;
+    justify-content: center;
+    gap: var(--space-12);
+    text-align: left;
+  }
+  .bodyFirst:has([data-login-assist]) .emblem {
+    width: 48px;
+    height: 48px;
+  }
+  .bodyFirst:has([data-login-assist]) .form {
+    gap: var(--space-16);
+  }
 }
 .heading {
   display: flex;

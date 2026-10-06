@@ -1,7 +1,8 @@
 /*
- * Login assist (demo builds only render it): styled as presenter tooling
- * (dashed border, warning tone), never as part of the login form. Collapsed it
- * is one 44px row; the account list grows in place underneath.
+ * Demo accounts (demo builds only render it): styled as presenter tooling
+ * (dashed border, warning tone), never as part of the login form. The accounts
+ * are an ordinary divided list of 56px rows, edge to edge under the tinted
+ * head, so a 320px phone keeps the most room for the names.
  */
 .assist {
   display: flex;
@@ -9,121 +10,39 @@
   border: var(--divider-thin) dashed var(--color-status-warning);
   border-radius: var(--radius-lg);
   background: var(--color-surface-warning-subtle);
+  overflow: hidden;
+}
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-12) var(--space-16);
   color: var(--color-text-warning);
+}
+.heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-8);
+  font: var(--type-label-small-strong);
+  letter-spacing: var(--ls-label-small);
 }
 .icon {
   flex: none;
 }
-.toggle,
-.change,
-.option {
-  border: none;
-  background: transparent;
-  color: inherit;
-  text-align: left;
-  transition: background-color var(--motion-fast) ease;
-}
-.toggle:active,
-.change:active,
-.option:active {
-  background: var(--color-status-warning-subtle);
-}
-.toggle {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  width: 100%;
-  min-height: var(--touch-target-min);
-  padding: var(--space-4) var(--space-12);
-  border-radius: var(--radius-lg);
-  font: var(--type-label-small-strong);
-  letter-spacing: var(--ls-label-small);
-}
-.toggleLabel {
-  flex: 1;
-  min-width: 0;
-}
-.chevron {
-  flex: none;
-  transition: transform var(--motion-base) var(--motion-ease);
-}
-.toggle[aria-expanded='true'] .chevron {
-  transform: rotate(180deg);
-}
-
-/* Picked: one compact line, with the action that reopens the list. */
-.chosen {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  min-height: var(--touch-target-min);
-  padding-left: var(--space-12);
-}
-.chosenText {
-  flex: 1;
-  min-width: 0;
-  font: var(--type-label-small);
-  letter-spacing: var(--ls-label-small);
-  overflow-wrap: anywhere;
-}
-.change {
-  flex: none;
-  min-height: var(--touch-target-min);
-  padding: 0 var(--space-12);
-  border-radius: var(--radius-lg);
-  font: var(--type-label-small-strong);
-  letter-spacing: var(--ls-label-small);
-  text-decoration: underline;
-}
-
-/* Height animates 0fr → 1fr; hidden (and inert) once collapsed, so the rows are neither tabbable nor announced. */
-.region {
-  display: grid;
-  grid-template-rows: 0fr;
-  visibility: hidden;
-  transition:
-    grid-template-rows var(--motion-base) var(--motion-ease),
-    visibility 0s linear var(--motion-base);
-}
-.region[data-open='true'] {
-  grid-template-rows: 1fr;
-  visibility: visible;
-  transition: grid-template-rows var(--motion-base) var(--motion-ease);
-}
-.clip {
-  min-height: 0;
-  overflow: hidden;
-}
-.options {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-4);
-  border-top: var(--divider-thin) dashed var(--color-status-warning);
-}
-.option {
-  display: flex;
-  align-items: center;
-  gap: var(--space-8);
-  width: 100%;
-  min-height: var(--touch-target-min);
-  padding: var(--space-4) var(--space-8);
-  border-radius: var(--radius-md);
-}
-.option[aria-current='true'] {
-  background: var(--color-status-warning-subtle);
-}
-.optionText {
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-  min-width: 0;
-}
-.optionLabel {
-  font: var(--type-label-small-strong);
-  letter-spacing: var(--ls-label-small);
-}
-.optionWho {
+.hint {
   font: var(--type-caption);
   letter-spacing: var(--ls-caption);
+}
+.assist .list {
+  border-top: var(--divider-thin) dashed var(--color-status-warning);
+  border-radius: var(--radius-none);
+  box-shadow: none;
+}
+/* The person the presenter picked last in the demo panel: the panel's own marker (brand tint and a check, U18). */
+.list [aria-current='true'] {
+  background: var(--color-surface-brand-subtle);
+}
+.check {
+  flex: none;
+  color: var(--color-icon-brand);
 }

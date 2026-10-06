@@ -14,7 +14,8 @@ export interface SummaryFigure {
 
 export interface SummaryFact {
   readonly icon: IconName;
-  readonly tone: 'success' | 'error' | 'muted';
+  /** `warning`: the whole line is amber (icon + text + colour), for something still to do ("5 staff not marked today"). */
+  readonly tone: 'success' | 'error' | 'info' | 'warning' | 'muted';
   readonly text: string;
 }
 
@@ -29,17 +30,19 @@ interface ReportSummaryCardProps {
 }
 
 /**
- * The headline card of My attendance and Institute attendance (RPT-6). Phones:
+ * The headline card of My attendance, Institute attendance and Staff attendance (RPT-6). Phones:
  * figures and facts, the trend underneath. From a 560px card: the headline on
  * the left and the trend on the right, split by a divider, so the card has no
  * empty half and the trend bars stay short enough to read against their month.
+ * A figure with facts is always two columns, the facts beside the figure, so the
+ * layout never depends on how long a fact is in a language (U11).
  */
 export function ReportSummaryCard({ figures, facts, trend, empty }: ReportSummaryCardProps) {
   const hasTrend = !!trend && trend.length > 1;
   return (
     <Card className={styles.card}>
       <div className={cx(styles.layout, hasTrend && styles.withTrend)}>
-        <div className={cx(styles.head, figures.length > 1 && styles.pair)}>
+        <div className={cx(styles.head, figures.length > 1 ? styles.pair : figures.length === 1 && !!facts?.length && styles.withFacts)}>
           {empty && <p className={styles.empty}>{empty}</p>}
           {figures.map((figure, i) => (
             <span key={i} className={styles.figure}>
@@ -58,7 +61,7 @@ export function ReportSummaryCard({ figures, facts, trend, empty }: ReportSummar
           {facts && facts.length > 0 && (
             <span className={styles.facts}>
               {facts.map((fact) => (
-                <span key={fact.text} className={styles.fact}>
+                <span key={fact.text} className={cx(styles.fact, fact.tone === 'warning' && styles.warning)}>
                   <Icon name={fact.icon} size={20} className={styles[fact.tone]} />
                   {fact.text}
                 </span>

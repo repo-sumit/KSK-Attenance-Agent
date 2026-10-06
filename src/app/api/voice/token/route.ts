@@ -11,9 +11,10 @@ export const dynamic = 'force-dynamic';
 /**
  * 20 tokens per client IP in 10 minutes (spec §10). One trainer needs about one token per 10-minute connection, so
  * this stops loops and scripts. Everyone behind one shared IP (an institute's Wi-Fi) shares the budget; the count
- * is per server instance, which is enough for a brake and is not a quota.
+ * is per server instance, which is enough for a brake and is not a quota. `next dev` gives every local tab, agent
+ * and script one key, so a development server allows 200 (D-158); production keeps 20 (D-107).
  */
-const limiter = new FixedWindowLimiter(20, 10 * 60_000);
+const limiter = new FixedWindowLimiter(process.env.NODE_ENV === 'development' ? 200 : 20, 10 * 60_000);
 
 /** Every answer is private to this request: a token must never be cached or shared. */
 function reply(body: object, status: number, headers: Record<string, string> = {}): Response {

@@ -91,7 +91,7 @@ test('offline data: calm when synced, and no download action once every batch is
   await preset(page, 'batch');
   await page.goto('/reports/offline');
   // A quiet confirmation that carries the end-of-day rule (RPT-4).
-  await expect(page.getByRole('status').filter({ hasText: 'All attendance synced' })).toContainText('flagged to the principal');
+  await expect(page.getByRole('status').filter({ hasText: 'All attendance synced' })).toContainText('reported as missing for the day');
   await expect(page.getByRole('button', { name: 'Refresh all data' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Download more batches' })).toHaveCount(0);
   await page.goto('/reports/offline/download');
@@ -107,9 +107,12 @@ test('principal reports: the institute, every batch by trade, at-risk across the
   await nav(page, 'Reports').click();
   await page.waitForURL(/\/reports$/);
   const institute = page.getByRole('region', { name: 'Institute attendance' });
-  await expect(institute).toContainText('417 students');
-  await expect(institute).toContainText('17 batches');
-  await expect(institute).toContainText('Staff attendance');
+  // The anatomy of its sibling cards (U3): a figure captioned Attendance, its size as icon facts, the monthly trend.
+  await expect(institute.getByText('Attendance', { exact: true })).toBeVisible();
+  for (const fact of ['417 students', '17 batches']) await expect(institute.getByText(fact, { exact: true }).locator('svg')).toHaveCount(1);
+  await expect(institute.getByText('Last 3 months')).toBeVisible();
+  // One staff figure per page (D-154): the Staff attendance section has this month's, so the institute card has none.
+  await expect(institute).not.toContainText('Staff attendance');
   const batches = page.getByRole('region', { name: 'Batch attendance' });
   await expect(batches.getByRole('button', { name: /Shift \d+ · Unit \d+.*students/ })).toHaveCount(17);
   // Every batch row also downloads its own register (owner follow-up to D-137).
@@ -117,10 +120,95 @@ test('principal reports: the institute, every batch by trade, at-risk across the
   // One register download per trade on its label line (D-137).
   await expect(batches.getByRole('button', { name: /^Trade register: / })).toHaveCount(5);
   await expect(batches.getByRole('heading', { name: 'Welder' })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Offline data' })).toHaveCount(0);
+  // Offline for every user (D-153): the principal holds packs too (principalCanMarkStudents).
+  await expect(page.getByRole('region', { name: 'Offline data' }).getByRole('link', { name: /batches on this phone/ })).toBeVisible();
+  // More reports keeps only the Correction log while the Staff attendance section is on the page.
+  const more = page.getByRole('region', { name: 'More reports' });
+  await expect(more.getByRole('link')).toHaveCount(1);
+  await expect(more.getByRole('link')).toContainText('Correction log');
   await page.getByRole('link', { name: /Correction log/ }).click();
   await page.waitForURL(/\/reports\/view\?r=correction_log/);
   await expect(page.getByText(/Kiran Wagh/)).toBeVisible();
+});
+
+test('principal reports: the Staff attendance card this month, every staff member, the detail report (D-154)', async ({ page, consoleErrors }) => {
+  void consoleErrors;
+  await preset(page, 'principal');
+  await nav(page, 'Reports').click();
+  await page.waitForURL(/\/reports$/);
+  const staff = page.getByRole('region', { name: 'Staff attendance' });
+  await expect(staff.getByText('This month')).toHaveCount(1);
+  // The headline: the month's figure, staff-days present and absent, and who is not marked today.
+  await expect(staff.getByText('Attendance', { exact: true })).toBeVisible();
+  await expect(staff.getByText(/^Present: [\d.]+ days?$/)).toBeVisible();
+  await expect(staff.getByText(/^Absent: \d+ days?$/)).toBeVisible();
+  await expect(staff.getByText('5 staff not marked today')).toBeVisible();
+  // Every staff member (the principal included, office staff not), lowest first, each row expandable.
+  const rows = staff.getByRole('button', { expanded: false });
+  await expect(rows).toHaveCount(18);
+  await expect(staff.getByText('Not marked today', { exact: true })).toHaveCount(5);
+  await expect(staff.getByText('Dr. Anil Deshmukh (you)')).toBeVisible();
+  const figures = await pcts(page, rows);
+  expect(figures).toEqual([...figures].sort((a, b) => a - b));
+  await rows.first().click();
+  await expect(staff.getByRole('button', { expanded: true })).toHaveCount(1);
+  // On the page between At-risk and Offline data.
+  const top = async (name: string) => (await page.getByRole('region', { name }).boundingBox())!.y;
+  expect(await top('At-risk students')).toBeLessThan(await top('Staff attendance'));
+  expect(await top('Staff attendance')).toBeLessThan(await top('Offline data'));
+  await staff.getByRole('link', { name: 'Choose dates · print' }).click();
+  await page.waitForURL(/\/reports\/view\?r=staff_summary&range=month/);
+  // Each row continues the section's row: role · trade, "n of m days", Absent N, Not marked N, then the % (U9).
+  const first = page.locator('main li').first();
+  await expect(first.getByText(/^\d+(\.\d)? of \d+ days$/)).toBeVisible();
+  await expect(first.getByText(/^Absent \d+$/)).toBeVisible();
+  await expect(first.getByText(/^Not marked \d+$/)).toBeVisible();
+  await expect(first).toContainText(/\d+%/);
+});
+
+test('Reports keeps one rhythm: a section with an action spaces like one without; its end action is centred (U10, U15)', async ({ page, consoleErrors }) => {
+  void consoleErrors;
+  await page.setViewportSize({ width: 360, height: 800 });
+  await preset(page, 'principal');
+  await page.goto('/reports');
+  const staff = page.getByRole('region', { name: 'Staff attendance' });
+  await expect(staff.getByRole('button', { expanded: false })).toHaveCount(18);
+  // Title → subtitle: the same gap with the Staff register action on the line as without one.
+  const gap = async (name: string) => {
+    const region = page.getByRole('region', { name });
+    const title = (await region.getByRole('heading', { level: 2, name }).boundingBox())!;
+    // The section's head: its title (line) and the subtitle under it.
+    const subtitle = (await region.locator(':scope > div > p').first().boundingBox())!;
+    return subtitle.y - (title.y + title.height);
+  };
+  expect(Math.abs((await gap('Staff attendance')) - (await gap('Institute attendance')))).toBeLessThanOrEqual(1);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const link = (await staff.getByRole('link', { name: 'Choose dates · print' }).boundingBox())!;
+  const column = (await staff.boundingBox())!;
+  expect(Math.abs(link.x + link.width / 2 - (column.x + column.width / 2))).toBeLessThanOrEqual(2);
+});
+
+test('staff register download: the month for every staff member (D-154)', async ({ page, consoleErrors }) => {
+  void consoleErrors;
+  await preset(page, 'principal');
+  await nav(page, 'Reports').click();
+  await page.waitForURL(/\/reports$/);
+  const staff = page.getByRole('region', { name: 'Staff attendance' });
+  const open = staff.getByRole('button', { name: 'Staff register' });
+  await open.click();
+  const sheet = page.getByRole('dialog', { name: 'Download attendance register' });
+  await expect(sheet).toContainText('All staff · Government ITI Pune');
+  await expect(sheet.getByRole('radio')).toHaveCount(2);
+  const [file] = await Promise.all([page.waitForEvent('download'), sheet.getByRole('button', { name: 'Download', exact: true }).click()]);
+  expect(file.suggestedFilename()).toMatch(/^KSK-staff-register_\d{4}-\d{2}\.html$/);
+  const html = await readFile(await file.path(), 'utf8');
+  expect(html).toContain('Monthly Staff Attendance Register');
+  expect(html).toContain('Dr. Anil Deshmukh');
+  expect(html.match(/<tr class="st[^"]*" data-staff=/g)).toHaveLength(18);
+  expect(html).toContain('.emblem{background:url("data:image/png;base64,');
+  await expect(page.getByRole('status').filter({ hasText: 'Register downloaded' })).toBeVisible();
+  await expect(sheet).toHaveCount(0);
+  await expect(open).toBeFocused();
 });
 
 const saved = async (download: Download) => {

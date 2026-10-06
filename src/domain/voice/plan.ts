@@ -79,7 +79,8 @@ export interface VoiceCapabilities {
   /**
    * The report sections the Reports screen has (journey.reports.blocks), so voice answers and shows only what the screen
    * shows: the batches (my_batches or trade_batch: batch reports and the register download), the at-risk students
-   * (student_percentage) and the institute headline (institute_summary).
+   * (student_percentage), the institute headline (institute_summary) and staff attendance (staff_summary with the
+   * principal's staff view: the staff report and the staff register, D-154, D-156).
    */
   readonly reportSections: ReportSections;
   /** The principal marks staff who have no record yet (journey.staff.principalCanMark). */
@@ -87,7 +88,7 @@ export interface VoiceCapabilities {
   /** The statuses a staff member can be marked with by voice (journey.staff.statusSet); empty without staff marking. */
   readonly staffStatuses: readonly StatusCode[];
   readonly announcements: boolean;
-  /** The register download (reports.pdfDownload), from the batches section where its sheet opens. */
+  /** The register download (reports.pdfDownload), from the batches section or the staff section, where its sheet opens. */
   readonly downloads: boolean;
   readonly navTargets: readonly NavTarget[];
 }
@@ -96,6 +97,7 @@ export interface ReportSections {
   readonly batches: boolean;
   readonly atRisk: boolean;
   readonly institute: boolean;
+  readonly staff: boolean;
 }
 
 export interface VoicePlan {
@@ -122,10 +124,16 @@ function navTargets(journey: Journey): NavTarget[] {
   return (Object.keys(has) as NavTarget[]).filter((t) => has[t]);
 }
 
-/** The report sections of the journey's Reports screen (none without reports). */
-function reportSections(reports: Journey['reports']): ReportSections {
+/** The report sections of the journey's Reports screen (none without reports), as ReportsScreen renders them. */
+function reportSections(journey: Journey): ReportSections {
+  const { reports } = journey;
   const has = (block: ReportBlock) => reports.enabled && reports.blocks.includes(block);
-  return { batches: has('my_batches') || has('trade_batch'), atRisk: has('student_percentage'), institute: has('institute_summary') };
+  return {
+    batches: has('my_batches') || has('trade_batch'),
+    atRisk: has('student_percentage'),
+    institute: has('institute_summary'),
+    staff: has('staff_summary') && journey.staff.principalStaffView,
+  };
 }
 
 /** Null only when voice does not exist for this session (journey.voice.enabled false). */
@@ -134,18 +142,18 @@ export function compileVoicePlan(input: PlanInput, screenLanguage: Language): Vo
   if (!journey.voice.enabled) return null;
   const { voice, reports } = journey;
   const scope = journey.homeVariant;
-  const sections = reportSections(reports);
+  const sections = reportSections(journey);
   return {
     scope,
     marking: compileFlowPlan(input, screenLanguage),
     capabilities: {
       selfAttendance: journey.staff.selfCanMark,
-      reports: sections.batches || sections.atRisk || sections.institute ? scope : null,
+      reports: sections.batches || sections.atRisk || sections.institute || sections.staff ? scope : null,
       reportSections: sections,
       staffMarking: journey.staff.principalCanMark,
       staffStatuses: journey.staff.principalCanMark ? journey.staff.statusSet : [],
       announcements: journey.announcements.enabled,
-      downloads: sections.batches && reports.pdfDownload,
+      downloads: (sections.batches || sections.staff) && reports.pdfDownload,
       navTargets: navTargets(journey),
     },
     languages: voice.languages,

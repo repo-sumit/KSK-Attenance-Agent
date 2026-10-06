@@ -15,15 +15,17 @@ interface SegmentedProps<V extends string> {
   readonly options: readonly SegmentedOption<V>[];
   readonly value: V;
   readonly onChange: (value: V) => void;
+  /**
+   * Spans its column (D-159): a screen's view switch (md) and a screen's filter (sm). A control inside a panel or a
+   * row keeps its natural width from 600px.
+   */
   readonly fullWidth?: boolean;
-  /** With fullWidth: from 600px the track stops at the form width (480px) instead of spanning a wide column. */
-  readonly capped?: boolean;
   readonly size?: 'md' | 'sm';
   readonly className?: string;
 }
 
 /** Radio group styled as the SwiftChat segmented control; arrow keys move the selection. */
-export function Segmented<V extends string>({ label, options, value, onChange, fullWidth, capped, size = 'md', className }: SegmentedProps<V>) {
+export function Segmented<V extends string>({ label, options, value, onChange, fullWidth, size = 'md', className }: SegmentedProps<V>) {
   const refs = useRef<Array<HTMLButtonElement | null>>([]);
   const current = Math.max(0, options.findIndex((o) => o.value === value));
 
@@ -37,7 +39,7 @@ export function Segmented<V extends string>({ label, options, value, onChange, f
   };
 
   return (
-    <div role="radiogroup" aria-label={label} className={cx(styles.track, fullWidth && styles.full, capped && styles.capped, styles[size], className)}>
+    <div role="radiogroup" aria-label={label} className={cx(styles.track, fullWidth && styles.full, styles[size], className)}>
       {options.map((option, i) => {
         const selected = option.value === value;
         return (

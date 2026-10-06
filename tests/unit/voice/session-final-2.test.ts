@@ -57,7 +57,7 @@ describe('the Reconnect kickoff after queued screen hooks (S2)', () => {
   });
 });
 
-describe('Use screen shows none of the agent words it does not play (S3)', () => {
+describe('Pause shows none of the agent words it does not play (S3)', () => {
   it('agent captions are dropped while paused and shown again after Resume', async () => {
     const { h, s } = await live();
     h.transport.emit({ outputText: 'Aarav?', turnComplete: true });
@@ -81,5 +81,22 @@ describe('screen hooks run quiet while their text would be dropped (E1)', () => 
     s.onScreen({ kind: 'review', sessionKey: KEY });
     await flush();
     expect(h.executor.quiets).toEqual([true, false]);
+  });
+});
+
+describe('debug lines for pauses and barge-ins (D-158): ids and codes only', () => {
+  it('logs interrupted, pause (user), resume (tap) and pause (hidden)', async () => {
+    const h = makeSessionDeps();
+    const lines: string[] = [];
+    const s = new VoiceSession({ ...h.deps, log: (line) => lines.push(line) });
+    s.start();
+    await vi.waitFor(() => expect(status(s)).toBe('listening'));
+    lines.length = 0;
+    h.transport.emit({ interrupted: true });
+    s.pause();
+    s.resume();
+    s.setHidden(true);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(lines).toEqual(['interrupted', 'pause (user)', 'resume (tap)', 'pause (hidden)']);
   });
 });

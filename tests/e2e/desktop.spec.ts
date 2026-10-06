@@ -1,5 +1,5 @@
 import type { Locator, Page } from '@playwright/test';
-import { expect, expectNoOverflow, nav, openProfileMenu, preset, test } from './fixtures';
+import { demo, expect, expectNoOverflow, nav, openProfileMenu, preset, test } from './fixtures';
 
 const WIDE = [
   { width: 768, height: 1024 },
@@ -154,6 +154,30 @@ test('screens without the app header: the demo trigger floats (top right on phon
   expect(t.y + t.height).toBeGreaterThan(720 - 40);
 });
 
+const drawerMarked = (page: Page) => page.evaluate(() => document.documentElement.hasAttribute('data-demo-drawer'));
+
+test('the demo trigger: the presenter mark, the signed-in first name from 600px, and wifi-off while offline', async ({ page, consoleErrors }) => {
+  void consoleErrors;
+  await preset(page, 'batch');
+  const trigger = page.locator('header').getByRole('button', { name: 'Open demo controls' });
+  const name = trigger.getByText('· Sunita', { exact: true });
+  await page.setViewportSize({ width: 360, height: 800 });
+  await expect(trigger.getByText('Demo', { exact: true })).toBeVisible();
+  await expect(name).toBeHidden(); // phones keep "Demo": header widths are unchanged
+  for (const width of [600, 1280]) {
+    await page.setViewportSize({ width, height: 800 });
+    await expect(name, `first name at ${width}`).toBeVisible();
+    await expectTriggerBesideAvatar(page, `named trigger at ${width}`);
+    await expectNoOverflow(page);
+  }
+  await expect(trigger).not.toHaveAttribute('data-offline');
+  await demo(page, "setNetwork('offline')");
+  await expect(trigger).toHaveAttribute('data-offline', 'true');
+  await expect(trigger).toHaveAccessibleName('Open demo controls, offline');
+  await demo(page, "setNetwork('online')");
+  await expect(trigger).toHaveAccessibleName('Open demo controls');
+});
+
 test('demo controls start collapsed on every size and overlay the app without reflowing it (a drawer on the right from 600px)', async ({ page, consoleErrors }) => {
   void consoleErrors;
   await preset(page, 'open');
@@ -161,13 +185,16 @@ test('demo controls start collapsed on every size and overlay the app without re
     await page.setViewportSize(size);
     // Collapsed: only the trigger; no panel content anywhere in the page.
     await expect(page.getByRole('button', { name: 'Open demo controls' })).toBeVisible();
-    await expect(page.getByText('Quick presets')).toHaveCount(0);
+    await expect(page.getByText('Sign in as')).toHaveCount(0);
     await expect(page.getByRole('complementary')).toHaveCount(0);
     const before = (await page.locator('main').boundingBox())!;
     await page.getByRole('button', { name: 'Open demo controls' }).click();
     const panel = page.getByRole('dialog', { name: 'Demo controls' });
-    await expect(panel.getByText('Quick presets')).toBeVisible();
+    // The first section: who to show.
+    await expect(panel.locator('h3').first()).toHaveText('Sign in as');
     const box = (await panel.boundingBox())!;
+    // The drawer contract: <html data-demo-drawer> exactly while the non-modal drawer is open (never for the phone sheet).
+    await expect.poll(() => drawerMarked(page), `drawer marker at ${size.width}`).toBe(size.width >= 600);
     if (size.width >= 600) {
       // On the trigger's side (right), below the header.
       expect(box.width).toBeLessThanOrEqual(420);
@@ -181,12 +208,37 @@ test('demo controls start collapsed on every size and overlay the app without re
     await page.keyboard.press('Escape');
     await expect(panel).toBeHidden();
     await expect(page.getByRole('button', { name: 'Open demo controls' })).toBeFocused();
+    await expect.poll(() => drawerMarked(page), `drawer marker removed at ${size.width}`).toBe(false);
   }
   // Tablets and desktops: the app stays usable while the panel is open.
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.getByRole('button', { name: 'Open demo controls' }).click();
   await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Reports' }).click();
   await page.waitForURL(/\/reports$/);
+});
+
+test('Voice Agent is an overlay: main keeps its box when the button grows into the card and when it is minimized (D-147)', async ({ page, consoleErrors }) => {
+  void consoleErrors;
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await preset(page, 'open');
+  for (const where of ['Home', 'roster']) {
+    if (where === 'roster') {
+      await page.getByRole('region', { name: 'Today’s attendance' }).getByRole('link', { name: /Electrician/ }).click();
+      await page.getByRole('link', { name: /Shift 1 · Unit 2/ }).click();
+      await page.waitForURL(/\/attendance\/mark/);
+    }
+    const main = page.locator('main');
+    const voiceButton = page.getByRole('button', { name: where === 'Home' ? 'Voice Agent' : /^(Listening|Paused|Speaking)$/ });
+    await expect(voiceButton).toBeVisible();
+    const before = await settledBox(main);
+    await voiceButton.click();
+    const card = page.locator('section[data-voice-status]');
+    await settledBox(card);
+    expect(await settledBox(main), `${where}: card`).toEqual(before);
+    await card.getByRole('button', { name: 'Minimize voice controls' }).click();
+    await expect(card).toHaveCount(0);
+    expect(await settledBox(main), `${where}: minimized`).toEqual(before);
+  }
 });
 
 test('profile menu: a bottom sheet on phones, anchored under the avatar on desktops; Escape closes it', async ({ page, consoleErrors }) => {
@@ -250,4 +302,83 @@ test('attendance stays a row list in a readable column on a monitor, with a cent
   expect(cta.width).toBeLessThanOrEqual(281);
   expect(Math.abs(cta.x + cta.width / 2 - 960)).toBeLessThanOrEqual(2);
   await expect(page.getByRole('table')).toHaveCount(0);
+});
+
+/** The right-most edge of a row's controls (its status control, a record's chip or pencil); full-width wrappers are not controls. */
+const rowEnd = (row: Locator) =>
+  row.evaluate((el) => {
+    const width = el.getBoundingClientRect().width;
+    return Math.max(...[...el.querySelectorAll('*')].map((c) => c.getBoundingClientRect()).filter((r) => r.width > 0 && r.width < width / 2).map((r) => r.right));
+  });
+const lastTileEnd = async (page: Page) => (await page.locator('[data-summary-item]').last().boundingBox())!;
+
+test('the Students | Staff switch spans the column on both views and keeps its y, width and band (D-159)', async ({ page, consoleErrors }) => {
+  void consoleErrors;
+  await preset(page, 'principal');
+  const view = page.getByRole('radiogroup', { name: 'Attendance view' });
+  for (const width of [768, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/attendance');
+    const list = page.getByRole('list', { name: 'Trades' });
+    await expect(list).toBeVisible();
+    const students = await settledBox(view);
+    const column = (await list.boundingBox())!;
+    expect(Math.abs(students.x - column.x), `x at ${width}`).toBeLessThanOrEqual(1);
+    expect(Math.abs(students.width - column.width), `width at ${width}`).toBeLessThanOrEqual(1);
+    const band = await view.evaluate((el) => getComputedStyle(el.parentElement!).backgroundColor);
+    await page.getByRole('radio', { name: 'Staff' }).click();
+    await page.waitForURL(/\/attendance\/staff$/);
+    await expect(page.locator('main li').first()).toBeVisible();
+    expect(await settledBox(view), `the switch does not move at ${width}`).toEqual(students);
+    expect(await view.evaluate((el) => getComputedStyle(el.parentElement!).backgroundColor), `the same band at ${width}`).toBe(band);
+    // Staff: the day's totals end where the switch ends (the column), in line with the rows' status column (U4).
+    const tile = await lastTileEnd(page);
+    expect(Math.abs(tile.x + tile.width - (students.x + students.width)), `tiles at ${width}`).toBeLessThanOrEqual(1);
+    expect(Math.abs(tile.x + tile.width - (await rowEnd(page.locator('main li').first()))), `rows at ${width}`).toBeLessThanOrEqual(1);
+  }
+});
+
+test('every summary in a fixed band ends in the rows\' status column from 600px; the roster date stays one line (U4, U7)', async ({ page, consoleErrors }) => {
+  void consoleErrors;
+  await preset(page, 'batch');
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.locator('main').getByRole('link', { name: /Shift 1 · Unit 2/ }).click();
+  await page.waitForURL(/\/attendance\/mark/, { timeout: 20_000 });
+  const rows = page.locator('[data-student]');
+  await expect(rows.first()).toBeVisible();
+  // The date and closing time: one line at tablet width, and a wrapped line never starts with "·".
+  const meta = page.locator('[data-summary-item]').first().locator('xpath=ancestor::div[2]').locator('p').first();
+  const { height, line } = await meta.evaluate((p) => ({ height: p.getBoundingClientRect().height, line: parseFloat(getComputedStyle(p).lineHeight) }));
+  expect(height, 'roster meta is one line at 768').toBeLessThanOrEqual(line * 1.5);
+  for (const width of [768, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    const tile = await lastTileEnd(page);
+    expect(Math.abs(tile.x + tile.width - (await rowEnd(rows.first()))), `roster at ${width}`).toBeLessThanOrEqual(1);
+  }
+  await page.getByRole('button', { name: 'Review & Submit' }).click();
+  await page.waitForURL(/\/attendance\/review/);
+  await page.getByRole('button', { name: 'Submit attendance' }).click();
+  await page.waitForURL(/\/attendance\/submitted/);
+  await page.goto(page.url().replace('/submitted', '/record'));
+  const record = page.locator('main ol > li');
+  await expect(record.first()).toBeVisible();
+  for (const width of [768, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    const tile = await lastTileEnd(page);
+    expect(Math.abs(tile.x + tile.width - (await rowEnd(record.first()))), `instructor record at ${width}`).toBeLessThanOrEqual(1);
+  }
+  // Phones: the record's status strip is the lead, above the tiles (the prototype's order).
+  await page.setViewportSize({ width: 360, height: 800 });
+  const strip = (await page.getByText(/^Submitted ·/).boundingBox())!;
+  expect(strip.y + strip.height).toBeLessThanOrEqual((await page.locator('[data-summary-item]').first().boundingBox())!.y);
+
+  await preset(page, 'principal');
+  const today = await page.evaluate(() => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date()));
+  await page.goto(`/attendance/record?s=ele-s1u1.${today}.daily`);
+  await expect(record.first()).toBeVisible();
+  for (const width of [768, 1280]) {
+    await page.setViewportSize({ width, height: 900 });
+    const tile = await lastTileEnd(page);
+    expect(Math.abs(tile.x + tile.width - (await rowEnd(record.first()))), `principal record at ${width}`).toBeLessThanOrEqual(1);
+  }
 });

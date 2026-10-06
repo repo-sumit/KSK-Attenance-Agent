@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { ExecutorDeps } from '@/services/voice/executor';
-import type { LiveCallbacks, LiveConnection, LiveSetup, LiveToken } from '@/services/voice/live/transport';
+import { liveConfig, type LiveCallbacks, type LiveConnection, type LiveSetup, type LiveToken } from '@/services/voice/live/transport';
 import { setup, signIn } from '../helpers/app';
 
 // The service's seams are observed, not replaced: the executor deps are captured (the real executor still runs),
@@ -81,16 +81,35 @@ describe('VoiceService', () => {
     expect(session.getState().status).toBe('ended');
   });
 
+  it('one voice per opening language, kept for the whole session; never a languageCode (D-155)', async () => {
+    const env = setup({ voice: { enabled: true, voiceName: 'Kore', voiceNames: { en: 'Achernar', mr: 'Sulafat' } } });
+    env.simulation.update({ voice: 'scripted' });
+    const ctx = await signIn(env.app, 'TR-10432');
+    const scripted = env.app.services.voice.scripted;
+    const voiceOf = async (screen: 'en' | 'mr') => {
+      const session = env.app.services.voice.start(ctx, screen)!;
+      await vi.waitFor(() => expect(session.getState().status).toBe('listening'));
+      const setupNow = scripted.lastSetup!;
+      session.stop();
+      return setupNow;
+    };
+    expect((await voiceOf('mr')).voiceName).toBe('Sulafat');
+    const en = await voiceOf('en');
+    expect(en.voiceName).toBe('Achernar');
+    expect(liveConfig(en)).toMatchObject({ speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Achernar' } } } });
+    expect(liveConfig(en).speechConfig).not.toHaveProperty('languageCode');
+  });
+
   it('runs a scripted principal session: today\'s state, the institute tools, the first name without a title', async () => {
     const env = setup({ voice: { enabled: true } });
     env.simulation.update({ voice: 'scripted' });
     const session = env.app.services.voice.start(await signIn(env.app, 'PR-2741'), 'en')!;
     await vi.waitFor(() => expect(session.getState().status).toBe('listening'));
     const scripted = env.app.services.voice.scripted;
-    expect(scripted.texts[0]).toMatch(/^\[APP\] Session started\. Today: \d+ of \d+ batches submitted, \d+ staff not marked yet\. .+ then ask "What do you need\?"\. Then wait\.$/);
+    expect(scripted.texts[0]).toMatch(/^\[APP\] Session started\. Today: \d+ of \d+ batches submitted, \d+ staff not marked yet, the principal included\. Say exactly: "Good morning, Principal\." Then say today's state in one line, in Indian English \(for example "\d+ of \d+ batches are in; \d+ staff haven't marked yet, including you\."\), then ask "How can I help\?"\. Then wait\.$/);
     expect(scripted.lastSetup!.tools.map((t) => t.name)).toEqual([
-      'get_status', 'get_reports_overview', 'get_batch_report', 'get_student_report', 'get_at_risk', 'show_report', 'download_register',
-      'get_staff_today', 'mark_staff', 'navigate', 'get_announcements', 'end_voice_session',
+      'get_status', 'get_reports_overview', 'get_batch_report', 'get_student_report', 'get_at_risk', 'get_staff_report', 'show_report', 'download_register',
+      'get_staff_today', 'mark_staff', 'mark_remaining_staff', 'navigate', 'get_announcements', 'end_voice_session',
     ]);
     expect(scripted.lastSetup!.systemInstruction).toContain('You are speaking with Anil, the principal of');
     expect(await scripted.toolCall('navigate', { to: 'staff_attendance' })).toMatchObject({ ok: true, screen: 'staff_attendance' });

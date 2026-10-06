@@ -12,6 +12,7 @@ import { routes } from '@/lib/routes';
 import type { SessionCard } from '@/services/attendance';
 import { BatchLabel } from '../../common/BatchLabel';
 import { batchTitle, sessionMeta, windowRange } from '../../common/labels';
+import { latinText } from '../../common/LatinText';
 import styles from './SessionCardView.module.css';
 
 export type CardViewer = 'marker' | 'monitor';
@@ -32,9 +33,9 @@ export function hrefFor(card: SessionCard, viewer: CardViewer): string {
   return viewer === 'monitor' ? routes.record(card.key) : routes.open(card.key);
 }
 
-/** The card's one action: marking is open here, on this phone or online. */
+/** The card's one action: marking is open here, on this phone or online, and the user's own attendance is in (D-152). */
 function canMarkNow(card: SessionCard, online: boolean): boolean {
-  return card.status === 'open' && card.canMark && (online || card.downloaded);
+  return card.status === 'open' && card.canMark && !card.selfFirst && (online || card.downloaded);
 }
 
 /** Where the card stands (prototype copy), with the kit StatusLine: icon + text + colour. */
@@ -78,6 +79,13 @@ function CardState({ card, viewer }: { readonly card: SessionCard; readonly view
         </StatusLine>
       );
     case 'open':
+      // Own attendance first (D-152): the tap opens the gateway, which says why and leads to My attendance.
+      if (card.selfFirst)
+        return (
+          <StatusLine tone="warning" icon="user-check">
+            {t('session.selfFirst')}
+          </StatusLine>
+        );
       // Offline and not on this phone: say so here instead of letting the tap end on "not downloaded".
       if (card.canMark && !online && !card.downloaded)
         return (
@@ -110,7 +118,8 @@ export const SessionCardView = memo(function SessionCardView({ card, variant, vi
   const count = t('common.students', { count: card.studentCount });
 
   if (variant === 'batch') {
-    const byLine = viewer === 'monitor' && card.submission ? t('selection.submittedBy', { count: card.studentCount, name: card.submission.byName }) : count;
+    // The submitter's name is Latin master data; "32 students" is translated (U14).
+    const byLine = viewer === 'monitor' && card.submission ? latinText(t, 'selection.submittedBy', { count: card.studentCount, name: card.submission.byName }, ['name']) : count;
     return (
       <PressableCard href={hrefFor(card, viewer)} className={styles.card}>
         <span className={styles.row}>
@@ -118,7 +127,7 @@ export const SessionCardView = memo(function SessionCardView({ card, variant, vi
             <span className={cx(styles.title, muted && styles.muted)}>{batchTitle(t, card.batch)}</span>
             <span className={styles.meta}>
               {meta ? `${meta} · ` : ''}
-              <Latin>{byLine}</Latin>
+              {byLine}
             </span>
           </span>
           <span className={styles.trail}>
@@ -131,7 +140,7 @@ export const SessionCardView = memo(function SessionCardView({ card, variant, vi
 
   const range = windowRange(format, card);
   const current = card.status === 'open' && Boolean(card.scheduled.window);
-  const highlighted = card.status === 'open' && card.canMark;
+  const highlighted = card.status === 'open' && card.canMark && !card.selfFirst;
   // Under a batch header the slot is named by what it is (Morning, Period 2, the subject), never the batch again.
   const title = meta ?? <Latin>{card.trade.name}</Latin>;
   return (

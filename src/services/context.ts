@@ -18,4 +18,9 @@ export interface SessionContext {
   /** The institute's master data snapshot for this session. */
   readonly data: MasterData;
   readonly clock: Clock;
+  /**
+   * The real time of day, for greetings only (D-151). Demo builds pass the device clock while `clock` stays the demo
+   * clock; production and tests pass the same clock as `clock`. Windows, cards and rules never read it.
+   */
+  readonly wallClock: Clock;
 }

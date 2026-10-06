@@ -12,7 +12,7 @@ export type DemoRole = 'instructor' | 'group_instructor' | 'principal';
 export interface DemoPersona {
   readonly id: PersonaId;
   readonly staffId: string;
-  /** Login credentials from the mock master data (institute 27410, Govt ITI Pune): filled by "Use demo account" on a tap. */
+  /** Login credentials from the mock master data (institute 27410, Govt ITI Pune): looked up by "Demo accounts" on a tap. */
   readonly instituteCode: string;
   readonly trainerId: string;
   readonly name: string;
@@ -41,6 +41,9 @@ export const PERSONAS: readonly DemoPersona[] = [
   { id: 'group', staffId: 'st-yogesh', instituteCode: '27410', trainerId: 'TR-10390', name: 'Yogesh Dalvi', role: 'group_instructor', title: 'Group instructor', line: 'Yogesh Dalvi · 2 classes + Electrician overview', config: { mapping: { model: 'batch' } } },
   { id: 'principal', staffId: 'st-anil', instituteCode: '27410', trainerId: 'PR-2741', name: 'Dr. Anil Deshmukh', role: 'principal', title: 'Principal', line: 'Dr. Anil Deshmukh · whole institute', config: {} },
 ];
+
+/** The first name the Demo trigger shows from 600px ("Demo · Sunita"); a title such as "Dr." is skipped. */
+export const firstName = (persona: DemoPersona) => persona.name.replace(/^Dr\.\s+/, '').split(' ')[0];
 
 export const personaById = (id: PersonaId) => PERSONAS.find((p) => p.id === id) ?? PERSONAS[0];
 export const personaForStaff = (staffId?: string) => PERSONAS.find((p) => p.staffId === staffId);

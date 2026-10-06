@@ -38,7 +38,7 @@ async function setFace(app: AppContainer, staffId: string, enrolled: boolean): P
  * A preset's story without moving anyone: who is demonstrated, the
  * configuration, fresh simulated outcomes, the demo clock and face enrolment.
  * It signs nobody in or out and navigates nowhere. Shared by the panel's
- * presets and by "Use demo account" on the login screens (through the
+ * presets and by "Demo accounts" on the login screen (through the
  * LoginAssistSource seam, wired in boot.ts). The state changes happen at once;
  * the promise settles when the face flag has reached the server too. On the
  * Supabase source it also writes the story's packs (the Offline story needs
@@ -107,7 +107,7 @@ export class DemoController {
     if (session) await setFace(this.app, session.staffId, enrolled);
   }
 
-  /** Skip login (Advanced): straight into the persona's session. */
+  /** Straight into the persona's session with the current story (E2E helpers; the panel's Sign in as uses applyPreset). */
   async signInAs(personaId: PersonaId, go = true): Promise<void> {
     const persona = personaById(personaId);
     // The persona brings its own mapping; drop any explicit mapping override from the panel.
@@ -118,22 +118,13 @@ export class DemoController {
   }
 
   /**
-   * Quick login: pick who to demonstrate, then show the real login steps with that
-   * persona highlighted under "Use demo account". Nothing is typed or submitted
-   * for the presenter until they pick it there. With "Skip login" on, signs
-   * straight in instead.
+   * "Show the login screens": signs out and opens the first login screen, where "Demo accounts" lists everyone. The
+   * story and the persona picked last stay (that person is highlighted there).
    */
-  async quickLogin(personaId: PersonaId): Promise<void> {
-    if (this.demo.repo.get().skipLogin) return this.signInAs(personaId);
-    const persona = personaById(personaId);
-    this.demo.repo.update((s) => ({ ...s, persona: persona.id, config: { ...s.config, mapping: undefined } }));
+  async showLogin(): Promise<void> {
     this.app.mockDatabase.clearPasses();
     await this.app.services.auth.signOut();
     this.navigate('/login');
-  }
-
-  setSkipLogin(skip: boolean): void {
-    this.demo.repo.update((s) => ({ ...s, skipLogin: skip }));
   }
 
   async setNetwork(mode: NetworkMode): Promise<void> {
@@ -144,7 +135,7 @@ export class DemoController {
       this.setConfig({ offline: { autoSync: false } });
       this.setSimulation({ online: true, nextSyncFails: true });
       // Only a record that can still sync tells the story; one the server refused for good does not count.
-      if ((await this.app.services.sync.pendingItems()).length === 0) await this.seedPendingRecord();
+      if ((await this.app.services.sync.pendingItems()).every((item) => item.kind === 'correction')) await this.seedPendingRecord();
       await this.app.services.sync.syncNow('auto');
       this.setSimulation({ nextSyncFails: fails });
       return;
@@ -198,7 +189,8 @@ export class DemoController {
 
   /** Records on this device not yet on the server: queued, still pending or failed, and corrections in the outbox. */
   private async waitingToSync(): Promise<number> {
-    const ids = new Set((await this.app.services.sync.pendingItems()).map((item) => item.recordId));
+    // Outbox corrections are listed too (D-153); they are counted once, below.
+    const ids = new Set((await this.app.services.sync.pendingItems()).filter((item) => item.kind !== 'correction').map((item) => item.recordId));
     const db = this.app.mockDatabase;
     for (const record of [...Object.values(db.read('submissions')), ...Object.values(db.read('staff'))]) if (awaitsSync(record)) ids.add(record.id);
     return ids.size + this.app.services.sync.outboxCount();
